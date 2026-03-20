@@ -48,11 +48,12 @@ function resolveMediaModel(name, ability) {
   const candidates = FRIENDLY_NAME_MAP[name];
   if (!candidates || candidates.length === 0) return name;
   if (candidates.length === 1) return candidates[0];
-  // 多个候选（如豆包 t2v/i2v）：ability 含「图像」走 i2v，否则走 t2v
-  const i2v = candidates.find(id => id.includes('i2v'));
-  const t2v = candidates.find(id => id.includes('t2v'));
-  if (ability && ability.includes('图像') && i2v) return i2v;
-  return t2v || candidates[0];
+  // 多候选：找 abilities 包含当前 ability 的那个
+  if (ability) {
+    const match = candidates.find(id => MODEL_REGISTRY[id].abilities.includes(ability));
+    if (match) return match;
+  }
+  return candidates[0];
 }
 
 // ── 消息去重 + 历史消息过滤 ──────────────────────────────
