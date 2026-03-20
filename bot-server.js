@@ -28,26 +28,31 @@ const MEDIA_SCRIPT = 'run-media-test.js';
 const SCORE_SCRIPT = 'ai-scoring.js';
 const PATCH_SCRIPT = 'patch-cases.js';
 
-const { MEDIA_MODELS, DIFY_TEXT_MODELS } = require('./models.config');
+const { MEDIA_MODELS, DIFY_TEXT_MODELS, ABILITY_PREFIXES, MODEL_REGISTRY } = require('./models.config');
 
-// ── 媒体模型友好名称 → 实际 ID（bot 指令用友好名称，脚本用实际 ID）──
-// 豆包-Seedance-Lite 会根据 ability 自动路由 t2v / i2v
-const FRIENDLY_MEDIA_NAMES = {
-  'midjourney':        'midjourney',
-  'Midjourney':        'midjourney',
-  '豆包-Seedance-Lite': '豆包-Seedance-Lite',  // 占位，由 resolveMediaModel 处理
-};
+// ── 媒体模型友好名称 → 实际 ID（从 MODEL_REGISTRY 自动派生，新增模型只改 models.config.js）──
+// 构建：friendlyName → [候选实际ID列表]（同一友好名称可能对应多个模型，由 ability 路由）
+const FRIENDLY_NAME_MAP = {};  // friendlyName → [actualId, ...]
+for (const [id, cfg] of Object.entries(MODEL_REGISTRY)) {
+  for (const fn of (cfg.friendlyNames || [])) {
+    if (!FRIENDLY_NAME_MAP[fn]) FRIENDLY_NAME_MAP[fn] = [];
+    FRIENDLY_NAME_MAP[fn].push(id);
+  }
+}
 
 function resolveMediaModel(name, ability) {
-  const lower = (name || '').toLowerCase();
-  if (lower === 'midjourney') return 'midjourney';
-  if (name === '豆包-Seedance-Lite') {
-    // 含「图像」的能力类型走图生视频（i2v），其余走文生视频（t2v）
-    return (ability && ability.includes('图像'))
-      ? 'doubao-seedance-1-0-lite-i2v'
-      : 'doubao-seedance-1-0-lite-t2v';
-  }
-  return name;  // 已是实际 ID，直接透传
+  if (!name) return name;
+  // 已是实际 ID，直接返回
+  if (MODEL_REGISTRY[name]) return name;
+  // 查友好名称表
+  const candidates = FRIENDLY_NAME_MAP[name];
+  if (!candidates || candidates.length === 0) return name;
+  if (candidates.length === 1) return candidates[0];
+  // 多个候选（如豆包 t2v/i2v）：ability 含「图像」走 i2v，否则走 t2v
+  const i2v = candidates.find(id => id.includes('i2v'));
+  const t2v = candidates.find(id => id.includes('t2v'));
+  if (ability && ability.includes('图像') && i2v) return i2v;
+  return t2v || candidates[0];
 }
 
 // ── 消息去重 + 历史消息过滤 ──────────────────────────────
@@ -130,7 +135,8 @@ function parseCommand(text) {
     const getArg  = (n) => { const i = parts.indexOf(n); return i >= 0 ? parts[i + 1] : null; };
     const model   = getArg('--model') || null;
     const ability = getArg('--ability') || null;
-    return { cmd: 'run', model, ability };
+    const caseId  = getArg('--case') || null;
+    return { cmd: 'run', model, ability, caseId };
   }
 
   // 评分：--batch / --all 可选，支持组合
@@ -271,15 +277,32 @@ async function handleMessage(data) {
 
   // 帮助
   if (parsed.cmd === 'help') {
+    // 动态生成可用模型列表
+    const mediaModelLines = [
+      '`Midjourney`  图像生成',
+      '`豆包-Seedance-Lite`  视频生成（文生视频 / 图生视频，根据 ability 自动路由）',
+    ];
+    const textModelLines = DIFY_TEXT_MODELS.map(
+      m => `\`${m.model}\`  ${m.vendor}${m.note ? '（' + m.note + '）' : ''}`
+    );
+
+    // 动态生成能力类型（按大类分组）
+    const abilityGroups = {};
+    Object.keys(ABILITY_PREFIXES).forEach(ability => {
+      const group = ability.split('·')[0];
+      if (!abilityGroups[group]) abilityGroups[group] = [];
+      abilityGroups[group].push(ability);
+    });
+    const abilityLines = Object.entries(abilityGroups).map(
+      ([group, abilities]) => `**${group}：** ${abilities.map(a => `\`${a}\``).join('  ')}`
+    );
+
     const helpBody = [
       '在群里 **@机器人** 加指令即可使用，例如：@机器人 帮助',
       '',
-      '**🎬 跑测试 · 图像生成**',
+      '**🎬 跑测试 · 图像 / 视频**',
       '`跑测试 --model Midjourney`',
       '`跑测试 --model Midjourney --ability 图像生成·文本`',
-      '',
-      '**🎬 跑测试 · 视频生成**',
-      '`跑测试 --model 豆包-Seedance-Lite`',
       '`跑测试 --model 豆包-Seedance-Lite --ability 视频生成·文本`',
       '',
       '**📝 跑测试 · 文本模型**',
@@ -287,15 +310,23 @@ async function handleMessage(data) {
       '`跑测试 --ability 文本生成·文案`  （默认模型 glm-4.5）',
       '`跑测试 --model qwen3.5-plus --ability 文本生成·歌词`',
       '',
+      '支持 `--case 用例编号` 只跑某一条，如：`跑测试 --model glm-4.5 --case TC-TXT-LYR-002`',
+      '',
       '**⭐ 评分**  默认只评文本类未评分记录',
       '`评分`',
       '`评分 --all`  强制重评所有',
       '`评分 --batch 202503-glm-4.5`  指定批次',
-      '`评分 --batch 202503-glm-4.5 --all`',
       '',
       '**🔧 补全用例**',
       '`补全用例`  AI 补全全部空字段',
       '`补全用例 --ability 视频生成·文本`  指定能力类型',
+      '',
+      '**🤖 可用模型**',
+      ...mediaModelLines,
+      ...textModelLines,
+      '',
+      '**📋 能力类型**',
+      ...abilityLines,
     ].join('\n');
 
     await sendCard(
@@ -314,8 +345,8 @@ async function handleMessage(data) {
     const friendlyName = parsed.model;
     const ability      = parsed.ability;
 
-    // 判断是否媒体模型（先尝试友好名称，再检查实际 ID）
-    const isMediaFriendly = friendlyName && (friendlyName in FRIENDLY_MEDIA_NAMES);
+    // 判断是否媒体模型（友好名称查表 或 已是实际 ID）
+    const isMediaFriendly = friendlyName && (friendlyName in FRIENDLY_NAME_MAP);
     const isMediaDirect   = friendlyName && MEDIA_MODELS.includes(friendlyName);
     const isMedia         = isMediaFriendly || isMediaDirect;
 
@@ -328,19 +359,26 @@ async function handleMessage(data) {
       }
 
       const scriptArgs = [MEDIA_SCRIPT, '--model', actualModel];
-      if (ability) scriptArgs.push('--ability', ability);
+      if (ability)          scriptArgs.push('--ability', ability);
+      if (parsed.caseId)    scriptArgs.push('--case', parsed.caseId);
 
       await sendMsg(chatId,
         `⏳ 开始测试 ${friendlyName}` +
         (ability ? `（${ability}）` : '') +
+        (parsed.caseId ? `\n用例：${parsed.caseId}` : '') +
         '\n结果写入完成后通知你。'
       );
 
       console.log(`\n[BOT] 执行: node ${scriptArgs.join(' ')}`);
       const { code, lines } = await runTest(scriptArgs);
-      const summary = summarize(lines, code);
-      await sendMsg(chatId,
-        (code === 0 ? '✅ 测试完成\n\n' : '⚠️ 测试结束（有异常）\n\n') + summary
+      const recordIds = lines.filter(l => l.startsWith('[RECORD]')).map(l => l.replace('[RECORD]', '').trim());
+      const infoLines = lines.filter(l => !l.startsWith('[RECORD]') && (l.includes('完成') || l.includes('成功写入') || l.includes('❌'))).slice(0, 4);
+      let bodyText = infoLines.join('\n') || (code === 0 ? '测试完成' : '测试异常，请查看控制台日志');
+      if (recordIds.length > 0) bodyText += '\n\n**记录ID：**\n' + recordIds.map(id => `· ${id}`).join('\n');
+      await sendCard(chatId,
+        code === 0 ? `✅ 测试完成 · ${friendlyName}` : `⚠️ 测试结束（有异常）· ${friendlyName}`,
+        code === 0 ? 'green' : 'orange',
+        bodyText, '📊 查看模型测试记录', URL_RECORDS
       );
 
     } else {
@@ -348,19 +386,26 @@ async function handleMessage(data) {
       const actualModel = friendlyName || DIFY_TEXT_MODELS[0].model;
 
       const scriptArgs = [TEXT_SCRIPT, '--model', actualModel];
-      if (ability) scriptArgs.push('--ability', ability);
+      if (ability)          scriptArgs.push('--ability', ability);
+      if (parsed.caseId)    scriptArgs.push('--case', parsed.caseId);
 
       await sendMsg(chatId,
         `⏳ 开始测试 ${actualModel}` +
         (ability ? `（${ability}）` : '（全部文本类）') +
+        (parsed.caseId ? `\n用例：${parsed.caseId}` : '') +
         '\n结果写入完成后通知你。'
       );
 
       console.log(`\n[BOT] 执行: node ${scriptArgs.join(' ')}`);
       const { code, lines } = await runTest(scriptArgs);
-      const summary = summarize(lines, code);
-      await sendMsg(chatId,
-        (code === 0 ? '✅ 测试完成\n\n' : '⚠️ 测试结束（有异常）\n\n') + summary
+      const recordIds = lines.filter(l => l.startsWith('[RECORD]')).map(l => l.replace('[RECORD]', '').trim());
+      const infoLines = lines.filter(l => !l.startsWith('[RECORD]') && (l.includes('完成') || l.includes('成功写入') || l.includes('❌'))).slice(0, 4);
+      let bodyText = infoLines.join('\n') || (code === 0 ? '测试完成' : '测试异常，请查看控制台日志');
+      if (recordIds.length > 0) bodyText += '\n\n**记录ID：**\n' + recordIds.map(id => `· ${id}`).join('\n');
+      await sendCard(chatId,
+        code === 0 ? `✅ 测试完成 · ${actualModel}` : `⚠️ 测试结束（有异常）· ${actualModel}`,
+        code === 0 ? 'green' : 'orange',
+        bodyText, '📊 查看模型测试记录', URL_RECORDS
       );
     }
     return;

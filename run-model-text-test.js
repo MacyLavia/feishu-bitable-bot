@@ -10,6 +10,7 @@
  *   node run-model-text-test.js                               查看帮助 / 可用模型
  *   node run-model-text-test.js --model glm-4.5               Dify 跑指定模型
  *   node run-model-text-test.js --ability 文本生成·歌词        只跑指定能力类型（Dify）
+ *   node run-model-text-test.js --case TC-TXT-LYR-002         只跑指定用例编号
  *   node run-model-text-test.js --siliconflow                  走 SiliconFlow 直连（默认 GLM-4.7）
  *   node run-model-text-test.js --siliconflow --model deepseek-ai/DeepSeek-V3
  *
@@ -40,6 +41,7 @@ const USE_SF = args.includes('--siliconflow');  // 默认 Dify，加此参数才
 
 const TARGET_MODEL   = getArg('--model')   || (USE_SF ? 'Pro/zai-org/GLM-4.7' : DIFY_TEXT_MODELS[0].model);
 const TARGET_ABILITY = getArg('--ability') || null;  // null = 跑全部文本类
+const TARGET_CASE    = getArg('--case')    || null;  // 指定用例编号，如 TC-TXT-LYR-002
 
 // 无参数时显示帮助
 if (args.length === 0) {
@@ -120,7 +122,8 @@ function callLLM(model, prompt) {
   });
 }
 
-const DIFY_TIMEOUT_MS = 60000;  // Dify 文本模型超时（60s）
+const DIFY_TIMEOUT_MS  = 120000;  // Dify 文本模型超时（120s）
+const DIFY_MAX_RETRIES = 3;
 
 function callDify(prompt, model) {
   return new Promise((resolve, reject) => {
@@ -161,6 +164,24 @@ function callDify(prompt, model) {
 }
 
 function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+// Dify / LLM 调用带重试（最多 DIFY_MAX_RETRIES 次，间隔 10s / 20s）
+async function callWithRetry(fn, label) {
+  for (let attempt = 1; attempt <= DIFY_MAX_RETRIES; attempt++) {
+    try {
+      return await fn();
+    } catch (e) {
+      if (attempt < DIFY_MAX_RETRIES) {
+        const wait = attempt * 10;
+        console.log(`\n    ⚠️  第 ${attempt} 次失败（${e.message.slice(0, 60)}），${wait}s 后重试...`);
+        await sleep(wait * 1000);
+        process.stdout.write('    重试 ' + label + '...');
+      } else {
+        throw e;
+      }
+    }
+  }
+}
 function timeTag() {
   const d = new Date();
   return [d.getHours(), d.getMinutes(), d.getSeconds()]
@@ -195,11 +216,13 @@ async function main() {
     null, token);
   const allCases = casesRes.data && casesRes.data.items || [];
 
-  // 筛选文本类用例
+  // 筛选用例
   const textCases = allCases.filter(r => {
     const ability = (typeof r.fields['能力类型'] === 'object'
       ? r.fields['能力类型'].text : r.fields['能力类型']) || '';
-    const isText = ability.startsWith('文本') || ability.startsWith('提示词');
+    const caseId  = r.fields['用例编号'] || r.record_id;
+    const isText  = ability.startsWith('文本') || ability.startsWith('提示词');
+    if (TARGET_CASE)    return caseId === TARGET_CASE;
     if (TARGET_ABILITY) return ability === TARGET_ABILITY;
     return isText;
   });
@@ -223,13 +246,15 @@ async function main() {
     console.log('  ▶ [' + ability + ']  ' + caseId);
     console.log('    Prompt: ' + prompt.slice(0, 60) + (prompt.length > 60 ? '...' : ''));
 
-    // 调用模型
-    process.stdout.write('    调用 ' + modelShortName + (USE_SF ? ' [SiliconFlow]' : ' [Dify]') + '...');
+    // 调用模型（带重试）
+    const callLabel = modelShortName + (USE_SF ? ' [SiliconFlow]' : ' [Dify]');
+    process.stdout.write('    调用 ' + callLabel + '...');
     let output = '', elapsed = 0;
     try {
-      const result = USE_SF
-        ? await callLLM(TARGET_MODEL, prompt)
-        : await callDify(prompt, TARGET_MODEL);
+      const result = await callWithRetry(
+        () => USE_SF ? callLLM(TARGET_MODEL, prompt) : callDify(prompt, TARGET_MODEL),
+        callLabel
+      );
       output  = result.text;
       elapsed = result.elapsed;
       console.log(' ✅  (' + elapsed + 's)');
@@ -268,6 +293,7 @@ async function main() {
           { fields }, token);
         if (writeRes.code === 0) {
           console.log('    写入飞书 ✅  record_id=' + writeRes.data.record.record_id);
+          console.log('[RECORD] ' + recordId);
           ok++; written = true; break;
         } else {
           console.log('    写入失败 ❌  code=' + writeRes.code + ' ' + (writeRes.msg || ''));

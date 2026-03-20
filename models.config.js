@@ -38,6 +38,7 @@ const ABILITY_PREFIXES = {
   '视频生成·视频续写':         { prefix: 'TC-VID-CNT', isText: false },
   '视频生成·混剪':             { prefix: 'TC-VID-EDI', isText: false },
   '视频生成·运镜':             { prefix: 'TC-VID-CAM', isText: false },
+  '视频生成·姿态控制':         { prefix: 'TC-VID-POS', isText: false },
 
   // ── 口型驱动 ─────────────────────────────────────────────
   '口型驱动·纯音频':           { prefix: 'TC-LIP-AUD', isText: false },
@@ -76,43 +77,47 @@ const MODEL_REGISTRY = {
 
   // ── 图像生成（dev_huang_图像生成 工作流）─────────────────
   'midjourney': {
-    difyKey:     'app-t6QHK94kBcV2bXsvCny2t6wJ',
-    difyInputs:  (prompt) => ({ prompt, model: 'midjourney' }),
-    outputField: '输出图像附件',
-    mimeType:    'image/jpeg',
-    ext:         'jpg',
-    abilities:   ['图像生成·文本', '图像生成·文本+图像'],
-    timeout:     60000,
+    difyKey:      'app-t6QHK94kBcV2bXsvCny2t6wJ',
+    difyInputs:   (prompt, imageUrl) => ({ prompt, model: 'midjourney', i_url: imageUrl || '' }),
+    outputField:  '输出图像附件',
+    mimeType:     'image/jpeg',
+    ext:          'jpg',
+    abilities:    ['图像生成·文本', '图像生成·文本+图像', '图像生成·图生图'],
+    timeout:      240000,
+    friendlyNames: ['midjourney', 'Midjourney', 'MJ'],
   },
   // 待凭据可用 + Dify 工作流加 IF 分支后解注释：
   // 'cogview-4-250304': {
-  //   difyKey:     'app-t6QHK94kBcV2bXsvCny2t6wJ',
-  //   difyInputs:  (prompt) => ({ prompt, model: 'cogview-4-250304' }),
-  //   outputField: '输出图像附件',
-  //   mimeType:    'image/jpeg',
-  //   ext:         'jpg',
-  //   abilities:   ['图像生成·文本'],
-  //   timeout:     60000,
+  //   difyKey:      'app-t6QHK94kBcV2bXsvCny2t6wJ',
+  //   difyInputs:   (prompt) => ({ prompt, model: 'cogview-4-250304' }),
+  //   outputField:  '输出图像附件',
+  //   mimeType:     'image/jpeg',
+  //   ext:          'jpg',
+  //   abilities:    ['图像生成·文本'],
+  //   timeout:      60000,
+  //   friendlyNames: ['cogview', 'CogView'],
   // },
 
   // ── 视频生成（dev_huang_视频生成 工作流）─────────────────
   'doubao-seedance-1-0-lite-t2v': {
-    difyKey:     'app-FdMdpGKycnOIj9Iwf5jiyS9q',
-    difyInputs:  (prompt) => ({ prompt, model: 'doubao-seedance-1-0-lite-t2v' }),
-    outputField: '输出视频附件',
-    mimeType:    'video/mp4',
-    ext:         'mp4',
-    abilities:   ['视频生成·文本'],
-    timeout:     180000,
+    difyKey:      'app-FdMdpGKycnOIj9Iwf5jiyS9q',
+    difyInputs:   (prompt) => ({ prompt, model: 'doubao-seedance-1-0-lite-t2v' }),
+    outputField:  '输出视频附件',
+    mimeType:     'video/mp4',
+    ext:          'mp4',
+    abilities:    ['视频生成·文本'],
+    timeout:      180000,
+    friendlyNames: ['豆包-Seedance-Lite'],  // ability 不含「图像」时路由到此
   },
   'doubao-seedance-1-0-lite-i2v': {
-    difyKey:     'app-FdMdpGKycnOIj9Iwf5jiyS9q',
-    difyInputs:  (prompt, imageUrl) => ({ prompt, model: 'doubao-seedance-1-0-lite-i2v', i_url: imageUrl || '' }),
-    outputField: '输出视频附件',
-    mimeType:    'video/mp4',
-    ext:         'mp4',
-    abilities:   ['视频生成·文本+图像'],
-    timeout:     180000,
+    difyKey:      'app-FdMdpGKycnOIj9Iwf5jiyS9q',
+    difyInputs:   (prompt, imageUrl) => ({ prompt, model: 'doubao-seedance-1-0-lite-i2v', i_url: imageUrl || '' }),
+    outputField:  '输出视频附件',
+    mimeType:     'video/mp4',
+    ext:          'mp4',
+    abilities:    ['视频生成·文本+图像', '视频生成·图像(首帧)'],
+    timeout:      180000,
+    friendlyNames: [],  // 共享豆包-Seedance-Lite，ability 含「图像」时路由到此
   },
 };
 

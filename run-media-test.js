@@ -8,6 +8,7 @@
  *   node run-media-test.js --model midjourney
  *   node run-media-test.js --model doubao-seedance-1-0-lite-t2v
  *   node run-media-test.js --model midjourney --ability 图像生成·文本
+ *   node run-media-test.js --model midjourney --case TC-IMG-TXT-002
  */
 
 const https = require('https');
@@ -32,6 +33,7 @@ const args           = process.argv.slice(2);
 const getArg         = (n) => { const i = args.indexOf(n); return i >= 0 ? args[i + 1] : null; };
 const TARGET_MODEL   = getArg('--model');
 const TARGET_ABILITY = getArg('--ability') || null;
+const TARGET_CASE    = getArg('--case')    || null;  // 指定用例编号，如 TC-IMG-TXT-002
 
 // ── 工具函数 ──────────────────────────────────────────────
 function reqFeishu(method, path, body, token) {
@@ -81,6 +83,25 @@ function callDify(difyKey, inputs, timeoutMs) {
 }
 
 function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+// Dify 调用带重试（最多 3 次，间隔 10s / 20s）
+const DIFY_MAX_RETRIES = 3;
+async function callDifyWithRetry(difyKey, inputs, timeoutMs, label) {
+  for (let attempt = 1; attempt <= DIFY_MAX_RETRIES; attempt++) {
+    try {
+      return await callDify(difyKey, inputs, timeoutMs);
+    } catch (e) {
+      if (attempt < DIFY_MAX_RETRIES) {
+        const wait = attempt * 10;
+        console.log(`\n    ⚠️  第 ${attempt} 次失败（${e.message.slice(0, 60)}），${wait}s 后重试...`);
+        await sleep(wait * 1000);
+        process.stdout.write('    重试 ' + label + '...');
+      } else {
+        throw e;
+      }
+    }
+  }
+}
 function timeTag() {
   const d = new Date();
   return [d.getHours(), d.getMinutes(), d.getSeconds()]
@@ -214,6 +235,8 @@ async function main() {
   const cases = allCases.filter(r => {
     const ability = (typeof r.fields['能力类型'] === 'object'
       ? r.fields['能力类型'].text : r.fields['能力类型']) || '';
+    const caseId  = r.fields['用例编号'] || r.record_id;
+    if (TARGET_CASE) return caseId === TARGET_CASE;
     return matchAbilities.includes(ability);
   });
   console.log(` ✅  找到 ${cases.length} 条用例（${matchAbilities.join(' / ')}）\n`);
@@ -246,11 +269,13 @@ async function main() {
     console.log('    Prompt: ' + prompt.slice(0, 80) + (prompt.length > 80 ? '...' : ''));
     if (imageUrl) console.log('    输入图: ' + imageUrl.slice(0, 80));
 
-    // 调用 Dify
+    // 调用 Dify（带重试）
     process.stdout.write(`    调用 ${TARGET_MODEL}...`);
     let mediaUrl = '', elapsed = 0;
     try {
-      const result = await callDify(cfg.difyKey, cfg.difyInputs(prompt, imageUrl), cfg.timeout);
+      const result = await callDifyWithRetry(
+        cfg.difyKey, cfg.difyInputs(prompt, imageUrl), cfg.timeout, TARGET_MODEL
+      );
       mediaUrl = result.url;
       elapsed  = result.elapsed;
       console.log(` ✅  (${elapsed}s)`);
@@ -301,6 +326,7 @@ async function main() {
           { fields }, token);
         if (writeRes.code === 0) {
           console.log('    写入飞书 ✅  record_id=' + writeRes.data.record.record_id);
+          console.log('[RECORD] ' + fields['记录ID']);
           ok++; break;
         } else {
           console.log(`    写入失败 ❌  code=${writeRes.code} ${writeRes.msg || ''}`);
