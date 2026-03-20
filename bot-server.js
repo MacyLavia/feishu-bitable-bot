@@ -164,6 +164,8 @@ function parseCommand(text) {
   const cleaned = text.replace(/<at[^>]*>[^<]*<\/at>/g, '').replace(/@\S+/g, '').trim();
 
   if (cleaned === '帮助' || cleaned === 'help') return { cmd: 'help' };
+  if (cleaned === '可用模型' || cleaned === 'models') return { cmd: 'show_models' };
+  if (cleaned === '能力类型' || cleaned === 'abilities') return { cmd: 'show_abilities' };
 
   // 跑测试：--model 可选（缺省时走默认文本模型 glm-4.5）
   if (cleaned.startsWith('跑测试') || cleaned.startsWith('run')) {
@@ -258,7 +260,7 @@ async function sendCard(chatId, headerTitle, headerColor, bodyText, buttonText, 
   }
 }
 
-// ── 发送帮助卡片（3 个按钮：文档 + 查看模型 + 查看能力类型）──
+// ── 发送帮助卡片（1 个 URL 按钮 + 底部提示文字指令）──────
 async function sendHelpCard(chatId, bodyText) {
   const card = {
     config: { wide_screen_mode: true },
@@ -268,6 +270,7 @@ async function sendHelpCard(chatId, bodyText) {
     },
     elements: [
       { tag: 'div', text: { content: bodyText, tag: 'lark_md' } },
+      { tag: 'div', text: { content: '发送 `可用模型` 或 `能力类型` 查看详情', tag: 'lark_md' } },
       {
         tag: 'action',
         actions: [
@@ -276,18 +279,6 @@ async function sendHelpCard(chatId, bodyText) {
             text: { content: '📄 查看完整文档', tag: 'plain_text' },
             url: 'https://pcn28q31n7ee.feishu.cn/docx/Ew9zdFETeoQlQ7xWmsDcweiZnib',
             type: 'default',
-          },
-          {
-            tag: 'button',
-            text: { content: '🤖 查看可用模型', tag: 'plain_text' },
-            type: 'primary',
-            value: { action: 'show_models' },
-          },
-          {
-            tag: 'button',
-            text: { content: '📋 查看能力类型', tag: 'plain_text' },
-            type: 'primary',
-            value: { action: 'show_abilities' },
           },
         ],
       },
@@ -394,6 +385,18 @@ async function handleMessage(data) {
     ].join('\n');
 
     await sendHelpCard(chatId, helpBody);
+    return;
+  }
+
+  // 可用模型
+  if (parsed.cmd === 'show_models') {
+    await sendCard(chatId, '🤖 可用模型', 'blue', buildModelsBody(), '📊 查看测试记录', URL_RECORDS);
+    return;
+  }
+
+  // 能力类型
+  if (parsed.cmd === 'show_abilities') {
+    await sendCard(chatId, '📋 能力类型', 'blue', buildAbilitiesBody(), '📋 查看用例库', URL_CASES);
     return;
   }
 
@@ -570,21 +573,6 @@ wsClient.start({
       }
     },
   }),
-  cardActionHandler: async (data) => {
-    console.log('[DEBUG] 收到卡片回调:', JSON.stringify(data).slice(0, 200));
-    try {
-      const chatId = data.open_chat_id;
-      const action = data.action?.value?.action;
-      if (!chatId || !action) return;
-      if (action === 'show_models') {
-        await sendCard(chatId, '🤖 可用模型', 'blue', buildModelsBody(), '📊 查看测试记录', URL_RECORDS);
-      } else if (action === 'show_abilities') {
-        await sendCard(chatId, '📋 能力类型', 'blue', buildAbilitiesBody(), '📋 查看用例库', URL_CASES);
-      }
-    } catch(e) {
-      console.error('[ERROR] 卡片回调处理异常:', e.message);
-    }
-  },
 });
 
 console.log('');
