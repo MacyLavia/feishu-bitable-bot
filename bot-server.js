@@ -569,22 +569,22 @@ wsClient.start({
         console.error(e.stack);
       }
     },
-    'card.action.trigger': async (data) => {
-      console.log('[DEBUG] 收到卡片回调:', JSON.stringify(data).slice(0, 200));
-      try {
-        const chatId = data.context?.open_chat_id || data.open_chat_id;
-        const action = data.action?.value?.action;
-        if (!chatId || !action) return;
-        if (action === 'show_models') {
-          await sendCard(chatId, '🤖 可用模型', 'blue', buildModelsBody(), '📊 查看测试记录', URL_RECORDS);
-        } else if (action === 'show_abilities') {
-          await sendCard(chatId, '📋 能力类型', 'blue', buildAbilitiesBody(), '📋 查看用例库', URL_CASES);
-        }
-      } catch(e) {
-        console.error('[ERROR] 卡片回调处理异常:', e.message);
-      }
-    },
   }),
+  cardActionHandler: async (data) => {
+    console.log('[DEBUG] 收到卡片回调:', JSON.stringify(data).slice(0, 200));
+    try {
+      const chatId = data.open_chat_id;
+      const action = data.action?.value?.action;
+      if (!chatId || !action) return;
+      if (action === 'show_models') {
+        await sendCard(chatId, '🤖 可用模型', 'blue', buildModelsBody(), '📊 查看测试记录', URL_RECORDS);
+      } else if (action === 'show_abilities') {
+        await sendCard(chatId, '📋 能力类型', 'blue', buildAbilitiesBody(), '📋 查看用例库', URL_CASES);
+      }
+    } catch(e) {
+      console.error('[ERROR] 卡片回调处理异常:', e.message);
+    }
+  },
 });
 
 console.log('');
