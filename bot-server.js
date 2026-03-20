@@ -270,7 +270,7 @@ async function sendHelpCard(chatId, bodyText) {
     },
     elements: [
       { tag: 'div', text: { content: bodyText, tag: 'lark_md' } },
-      { tag: 'div', text: { content: '发送 `可用模型` 或 `能力类型` 查看详情', tag: 'lark_md' } },
+      { tag: 'div', text: { content: '在群里 **@机器人** 发送 `可用模型` 或 `能力类型` 查看详情', tag: 'lark_md' } },
       {
         tag: 'action',
         actions: [
@@ -372,7 +372,7 @@ async function handleMessage(data) {
       '`跑测试 --ability 文本生成·文案`  （默认模型 glm-4.5）',
       '`跑测试 --model qwen3.5-plus --ability 文本生成·歌词`',
       '',
-      '支持 `--case 用例编号` 只跑某一条，如：`跑测试 --model glm-4.5 --case TC-TXT-LYR-002`',
+      '_支持 `--case 用例编号` 只跑某一条，如：`跑测试 --model glm-4.5 --case TC-TXT-LYR-002`_',
       '',
       '**⭐ 评分**  默认只评文本类未评分记录',
       '`评分`',
