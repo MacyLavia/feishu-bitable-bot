@@ -277,7 +277,13 @@ async function sendHelpCard(chatId, bodyText) {
           {
             tag: 'button',
             text: { content: '📄 查看完整文档', tag: 'plain_text' },
-            url: 'https://pcn28q31n7ee.feishu.cn/docx/Ew9zdFETeoQlQ7xWmsDcweiZnib',
+            url: 'https://pcn28q31n7ee.feishu.cn/docx/BGridWskXoePymxfXHrcFCZgnuh',
+            type: 'default',
+          },
+          {
+            tag: 'button',
+            text: { content: '📋 查看用例库', tag: 'plain_text' },
+            url: URL_CASES,
             type: 'default',
           },
         ],
