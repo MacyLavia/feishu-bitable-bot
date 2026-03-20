@@ -56,6 +56,41 @@ function resolveMediaModel(name, ability) {
   return candidates[0];
 }
 
+// ── 帮助卡片内容构建（从 models.config.js 自动派生）──────
+function buildModelsBody() {
+  const seen = new Set();
+  const mediaLines = [];
+  for (const cfg of Object.values(MODEL_REGISTRY)) {
+    const names = cfg.friendlyNames || [];
+    if (names.length === 0) continue;
+    const displayName = names[0];
+    if (seen.has(displayName)) continue;
+    seen.add(displayName);
+    const outputType = cfg.outputField.includes('图像') ? '图像生成' : '视频生成';
+    const hasVariants = Object.values(MODEL_REGISTRY).filter(
+      c => (c.friendlyNames || []).includes(displayName)
+    ).length > 1;
+    const note = hasVariants ? '（根据 ability 自动路由）' : '';
+    mediaLines.push(`\`${displayName}\`  ${outputType}${note}`);
+  }
+  const textLines = DIFY_TEXT_MODELS.map(
+    m => `\`${m.model}\`  ${m.vendor}${m.note ? '（' + m.note + '）' : ''}`
+  );
+  return [...mediaLines, ...textLines].join('\n');
+}
+
+function buildAbilitiesBody() {
+  const groups = {};
+  Object.keys(ABILITY_PREFIXES).forEach(ability => {
+    const group = ability.split('·')[0];
+    if (!groups[group]) groups[group] = [];
+    groups[group].push(ability);
+  });
+  return Object.entries(groups)
+    .map(([group, abilities]) => `**${group}：** ${abilities.map(a => `\`${a}\``).join('  ')}`)
+    .join('\n');
+}
+
 // ── 消息去重 + 历史消息过滤 ──────────────────────────────
 // 1. processedMsgIds：同一 message_id 只处理一次（防 SDK 重连重放）
 // 2. BOT_START_MS：忽略 create_time 早于启动时刻的消息（防重连后推送历史消息）
@@ -223,6 +258,61 @@ async function sendCard(chatId, headerTitle, headerColor, bodyText, buttonText, 
   }
 }
 
+// ── 发送帮助卡片（3 个按钮：文档 + 查看模型 + 查看能力类型）──
+async function sendHelpCard(chatId, bodyText) {
+  const card = {
+    config: { wide_screen_mode: true },
+    header: {
+      template: 'blue',
+      title: { content: '📖 AI 模型测试框架 · 使用说明', tag: 'plain_text' },
+    },
+    elements: [
+      { tag: 'div', text: { content: bodyText, tag: 'lark_md' } },
+      {
+        tag: 'action',
+        actions: [
+          {
+            tag: 'button',
+            text: { content: '📄 查看完整文档', tag: 'plain_text' },
+            url: 'https://pcn28q31n7ee.feishu.cn/docx/Ew9zdFETeoQlQ7xWmsDcweiZnib',
+            type: 'default',
+          },
+          {
+            tag: 'button',
+            text: { content: '🤖 查看可用模型', tag: 'plain_text' },
+            type: 'primary',
+            value: { action: 'show_models' },
+          },
+          {
+            tag: 'button',
+            text: { content: '📋 查看能力类型', tag: 'plain_text' },
+            type: 'primary',
+            value: { action: 'show_abilities' },
+          },
+        ],
+      },
+    ],
+  };
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    try {
+      const token = await getToken();
+      const res = await reqFeishu('POST',
+        '/open-apis/im/v1/messages?receive_id_type=chat_id',
+        { receive_id: chatId, msg_type: 'interactive', content: JSON.stringify(card) },
+        token);
+      if (res.code === 0) return;
+      throw new Error('sendHelpCard failed code=' + res.code + ' ' + (res.msg || ''));
+    } catch (e) {
+      if (attempt < 3) {
+        await new Promise(r => setTimeout(r, attempt * 1000));
+      } else {
+        console.error('[BOT] 发送帮助卡片失败，降级为文本:', e.message);
+        await sendMsg(chatId, bodyText.replace(/\*\*/g, ''));
+      }
+    }
+  }
+}
+
 // ── 生成结果摘要（最多 5 行关键信息）────────────────────
 function summarize(lines, code) {
   // 找完成行和错误行
@@ -278,26 +368,6 @@ async function handleMessage(data) {
 
   // 帮助
   if (parsed.cmd === 'help') {
-    // 动态生成可用模型列表
-    const mediaModelLines = [
-      '`Midjourney`  图像生成',
-      '`豆包-Seedance-Lite`  视频生成（文生视频 / 图生视频，根据 ability 自动路由）',
-    ];
-    const textModelLines = DIFY_TEXT_MODELS.map(
-      m => `\`${m.model}\`  ${m.vendor}${m.note ? '（' + m.note + '）' : ''}`
-    );
-
-    // 动态生成能力类型（按大类分组）
-    const abilityGroups = {};
-    Object.keys(ABILITY_PREFIXES).forEach(ability => {
-      const group = ability.split('·')[0];
-      if (!abilityGroups[group]) abilityGroups[group] = [];
-      abilityGroups[group].push(ability);
-    });
-    const abilityLines = Object.entries(abilityGroups).map(
-      ([group, abilities]) => `**${group}：** ${abilities.map(a => `\`${a}\``).join('  ')}`
-    );
-
     const helpBody = [
       '在群里 **@机器人** 加指令即可使用，例如：@机器人 帮助',
       '',
@@ -321,23 +391,9 @@ async function handleMessage(data) {
       '**🔧 补全用例**',
       '`补全用例`  AI 补全全部空字段',
       '`补全用例 --ability 视频生成·文本`  指定能力类型',
-      '',
-      '**🤖 可用模型**',
-      ...mediaModelLines,
-      ...textModelLines,
-      '',
-      '**📋 能力类型**',
-      ...abilityLines,
     ].join('\n');
 
-    await sendCard(
-      chatId,
-      '📖 AI 模型测试框架 · 使用说明',
-      'blue',
-      helpBody,
-      '📄 查看完整文档',
-      'https://pcn28q31n7ee.feishu.cn/docx/Ew9zdFETeoQlQ7xWmsDcweiZnib'
-    );
+    await sendHelpCard(chatId, helpBody);
     return;
   }
 
@@ -511,6 +567,21 @@ wsClient.start({
       } catch(e) {
         console.error('[ERROR] handler 异常:', e.message);
         console.error(e.stack);
+      }
+    },
+    'card.action.trigger': async (data) => {
+      console.log('[DEBUG] 收到卡片回调:', JSON.stringify(data).slice(0, 200));
+      try {
+        const chatId = data.context?.open_chat_id || data.open_chat_id;
+        const action = data.action?.value?.action;
+        if (!chatId || !action) return;
+        if (action === 'show_models') {
+          await sendCard(chatId, '🤖 可用模型', 'blue', buildModelsBody(), '📊 查看测试记录', URL_RECORDS);
+        } else if (action === 'show_abilities') {
+          await sendCard(chatId, '📋 能力类型', 'blue', buildAbilitiesBody(), '📋 查看用例库', URL_CASES);
+        }
+      } catch(e) {
+        console.error('[ERROR] 卡片回调处理异常:', e.message);
       }
     },
   }),

@@ -84,7 +84,7 @@ const MODEL_REGISTRY = {
     ext:          'jpg',
     abilities:    ['图像生成·文本', '图像生成·文本+图像', '图像生成·图生图'],
     timeout:      240000,
-    friendlyNames: ['midjourney', 'Midjourney', 'MJ'],
+    friendlyNames: ['Midjourney', 'midjourney', 'MJ'],
   },
   // 待凭据可用 + Dify 工作流加 IF 分支后解注释：
   // 'cogview-4-250304': {
