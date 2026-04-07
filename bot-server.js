@@ -195,6 +195,13 @@ function parseCommand(text) {
     return { cmd: 'patch', ability: getArg('--ability') || null };
   }
 
+  // 更新价格：触发词 or 含"折"字的价格表达式
+  // 支持："更新价格 kling 2.6 55折"、"kling 2.6 55折；kling 3.0 75折"
+  if (cleaned.startsWith('更新价格') || cleaned.startsWith('价格更新') || /\d+折/.test(cleaned)) {
+    const priceText = cleaned.replace(/^(更新价格|价格更新)\s*/, '').trim();
+    return { cmd: 'update_price', text: priceText };
+  }
+
   return null;
 }
 
@@ -322,6 +329,41 @@ function summarize(lines, code) {
     return code === 0 ? '测试已完成 ✅' : '测试异常退出，请查看控制台日志';
   }
   return summary.join('\n');
+}
+
+// ── ai-model-pricing API 调用 ────────────────────────────
+const PRICING_API = (process.env.PRICING_API_URL || 'https://ai-model-pricing-ten.vercel.app').replace(/\/$/, '');
+const PRICING_KEY = process.env.PRICING_API_KEY || '';
+
+function pricingRequest(method, urlPath, body) {
+  return new Promise((resolve, reject) => {
+    const b = body ? JSON.stringify(body) : '';
+    const h = { 'Content-Type': 'application/json; charset=utf-8' };
+    if (b) h['Content-Length'] = Buffer.byteLength(b);
+    if (PRICING_KEY) h['Authorization'] = 'Bearer ' + PRICING_KEY;
+    const isHttps = PRICING_API.startsWith('https');
+    const hostname = PRICING_API.replace(/^https?:\/\//, '').split('/')[0];
+    const lib = isHttps ? https : require('http');
+    const r = lib.request({ hostname, path: urlPath, method, headers: h }, res => {
+      let d = ''; res.on('data', c => d += c);
+      res.on('end', () => { try { resolve(JSON.parse(d)); } catch(e) { resolve({ raw: d }); } });
+    });
+    r.on('error', reject);
+    if (b) r.write(b);
+    r.end();
+  });
+}
+
+// 解析价格文本 → [{modelQuery, discount}, ...]
+// 支持："kling 2.6 55折"  "kling 2.6 55折；kling 3.0 75折"  "kling 2.6 0.55"
+function parsePriceEntries(text) {
+  return text.split(/[；;,，\n]+/).map(s => s.trim()).filter(Boolean).map(entry => {
+    const foldMatch = entry.match(/^(.+?)\s+(\d+(?:\.\d+)?)折$/);
+    if (foldMatch) return { modelQuery: foldMatch[1].trim(), discount: parseFloat(foldMatch[2]) / 100 };
+    const decimalMatch = entry.match(/^(.+?)\s+(0\.\d+)$/);
+    if (decimalMatch) return { modelQuery: decimalMatch[1].trim(), discount: parseFloat(decimalMatch[2]) };
+    return null;
+  }).filter(Boolean);
 }
 
 // ── 消息事件处理 ──────────────────────────────────────────
@@ -474,6 +516,55 @@ async function handleMessage(data) {
         bodyText, '📊 查看模型测试记录', URL_RECORDS
       );
     }
+    return;
+  }
+
+  // 更新价格
+  if (parsed.cmd === 'update_price') {
+    const entries = parsePriceEntries(parsed.text);
+    if (entries.length === 0) {
+      await sendMsg(chatId,
+        '❌ 未能解析价格信息\n格式：`kling 2.6 55折` 或多条用分号隔开\n示例：`kling 2.6 55折；kling 3.0 75折`'
+      );
+      return;
+    }
+
+    await sendMsg(chatId, `⏳ 正在更新 ${entries.length} 条价格...`);
+
+    const results = [];
+    for (const entry of entries) {
+      try {
+        // 搜索模型
+        const searchRes = await pricingRequest('GET', `/api/coze/search?search=${encodeURIComponent(entry.modelQuery)}`);
+        const models = searchRes.models || [];
+        if (models.length === 0) {
+          results.push(`❌ **${entry.modelQuery}** — 未找到模型`);
+          continue;
+        }
+        const model = models[0];
+        // 更新折扣 + 折后价（有原价时自动计算）
+        const updateBody = { id: model.id, discount: entry.discount };
+        if (model.list_price) updateBody.discounted_price = Math.round(model.list_price * entry.discount * 10000) / 10000;
+        const updateRes = await pricingRequest('POST', '/api/coze/update-price', updateBody);
+        if (updateRes.success) {
+          const pct = Math.round(entry.discount * 100);
+          results.push(`✅ **${model.vendor} · ${model.model_name}** → ${pct}折`);
+        } else {
+          results.push(`❌ **${entry.modelQuery}** — 失败：${updateRes.error || '未知错误'}`);
+        }
+      } catch (e) {
+        results.push(`❌ **${entry.modelQuery}** — 请求异常：${e.message}`);
+      }
+    }
+
+    const allOk = results.every(r => r.startsWith('✅'));
+    await sendCard(chatId,
+      allOk ? '✅ 价格更新完成' : '⚠️ 价格更新（部分失败）',
+      allOk ? 'green' : 'orange',
+      results.join('\n'),
+      '💰 查看价格表',
+      PRICING_API
+    );
     return;
   }
 

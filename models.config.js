@@ -86,6 +86,16 @@ const MODEL_REGISTRY = {
     timeout:      240000,
     friendlyNames: ['Midjourney', 'midjourney', 'MJ'],
   },
+  'doubao-seedream-5.0-lite': {
+    difyKey:      'app-t6QHK94kBcV2bXsvCny2t6wJ',
+    difyInputs:   (prompt, imageUrl) => ({ prompt, model: 'doubao-seedream-5.0-lite', i_url: imageUrl || '' }),
+    outputField:  '输出图像附件',
+    mimeType:     'image/jpeg',
+    ext:          'jpg',
+    abilities:    ['图像生成·文本', '图像生成·文本+图像', '图像生成·图生图'],
+    timeout:      240000,
+    friendlyNames: ['seedream-5.0', 'seedream-5.0-lite'],
+  },
   // 待凭据可用 + Dify 工作流加 IF 分支后解注释：
   // 'cogview-4-250304': {
   //   difyKey:      'app-t6QHK94kBcV2bXsvCny2t6wJ',
