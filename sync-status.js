@@ -88,9 +88,10 @@ function extractSyncItems(records) {
     const testStatus = normalizeSelect(fields['测试状态']);
 
     // 至少有一个字段有值才同步
-    if (!vendor && !supplier && !usageStatus && !integrationStatus && !testStatus) continue;
+    if (!modelName && !vendor && !supplier && !usageStatus && !integrationStatus && !testStatus) continue;
 
     const item = { feishu_ref: matchKey, _label: modelLabel };
+    if (modelName) item.model_name = modelName;
     if (vendor) item.vendor = vendor;
     if (supplier) item.supplier = supplier;
     if (usageStatus) item.usage_status = usageStatus;
@@ -174,9 +175,18 @@ async function main() {
     return;
   }
 
-  console.log(`✅ 完成: 更新 ${result.updated} 条，新建 ${result.created} 条，跳过 ${result.skipped} 条，下架 ${result.archived || 0} 条（共 ${result.total} 条）`);
+  console.log(`✅ 完成: 修改 ${result.modified || 0} 条，未变 ${result.unchanged || 0} 条，新建 ${result.created} 条，跳过 ${result.skipped} 条，下架 ${result.archived || 0} 条（共 ${result.total} 条）`);
 
   if (result.details) {
+    const modified = result.details.filter(d => d.action === 'modified');
+    if (modified.length > 0) {
+      console.log('\n修改的记录:');
+      for (const d of modified) {
+        const fields = d.changed_fields ? d.changed_fields.join(', ') : '';
+        console.log(`  ✏️ ${d.feishu_ref}${fields ? ' (' + fields + ')' : ''}`);
+      }
+    }
+
     const failures = result.details.filter(d => d.action === 'skipped');
     if (failures.length > 0) {
       console.log('\n跳过的记录:');

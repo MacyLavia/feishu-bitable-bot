@@ -686,9 +686,11 @@ async function handleMessage(data) {
       l.includes('提取到') ||
       l.includes('状态汇总') ||
       l.includes('完成:') ||
+      l.includes('修改的记录') ||
+      l.includes('✏️') ||
       l.includes('❌') ||
       l.includes('⚠️')
-    ).slice(0, 8);
+    ).slice(0, 15);
 
     const bodyText = infoLines.join('\n') || (code === 0 ? '状态同步完成' : '状态同步异常，请查看控制台日志');
     await sendCard(
