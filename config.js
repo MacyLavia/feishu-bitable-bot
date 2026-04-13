@@ -19,4 +19,6 @@ module.exports = {
   FEISHU_APP_ID:     process.env.FEISHU_APP_ID     || '',
   FEISHU_APP_SECRET: process.env.FEISHU_APP_SECRET  || '',
   SILICONFLOW_KEY:   process.env.SILICONFLOW_KEY    || '',
+  PRICING_API_URL:   (process.env.PRICING_API_URL   || 'http://localhost:3000').replace(/\/$/, ''),
+  PRICING_API_KEY:   process.env.PRICING_API_KEY    || '',
 };

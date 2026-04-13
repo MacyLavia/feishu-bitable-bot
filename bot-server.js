@@ -20,13 +20,19 @@
 const lark = require('@larksuiteoapi/node-sdk');
 const { spawn } = require('child_process');
 const https = require('https');
-const { FEISHU_APP_ID: APP_ID, FEISHU_APP_SECRET: APP_SECRET } = require('./config');
+const {
+  FEISHU_APP_ID: APP_ID,
+  FEISHU_APP_SECRET: APP_SECRET,
+  PRICING_API_URL,
+  PRICING_API_KEY,
+} = require('./config');
 
 // 文本模型默认走 Dify（加 --siliconflow 走直连），图像/视频模型走 Dify
 const TEXT_SCRIPT  = 'run-model-text-test.js';
 const MEDIA_SCRIPT = 'run-media-test.js';
 const SCORE_SCRIPT = 'ai-scoring.js';
 const PATCH_SCRIPT = 'patch-cases.js';
+const SYNC_STATUS_SCRIPT = 'sync-status.js';
 
 const { MEDIA_MODELS, DIFY_TEXT_MODELS, ABILITY_PREFIXES, MODEL_REGISTRY } = require('./models.config');
 
@@ -161,11 +167,18 @@ async function sendMsg(chatId, text) {
 // 返回：解析结果对象 或 null
 function parseCommand(text) {
   // 去掉飞书 @ 标签
-  const cleaned = text.replace(/<at[^>]*>[^<]*<\/at>/g, '').replace(/@\S+/g, '').trim();
+  const cleaned = text
+    .replace(/<at[^>]*>[^<]*<\/at>/g, '')   // 去掉飞书 <at> 标签
+    .replace(/@\S+/g, '')                    // 去掉 @mention
+    .replace(/[\u200b\u200c\u200d\uFEFF\u00a0]/g, ' ')  // 不可见字符替换为普通空格
+    .replace(/\s+/g, ' ')                    // 多个空格合并
+    .trim();
+  console.log('[DEBUG] parseCommand cleaned:', JSON.stringify(cleaned));
 
   if (cleaned === '帮助' || cleaned === 'help') return { cmd: 'help' };
   if (cleaned === '可用模型' || cleaned === 'models') return { cmd: 'show_models' };
   if (cleaned === '能力类型' || cleaned === 'abilities') return { cmd: 'show_abilities' };
+  if (cleaned === '同步状态' || cleaned === 'sync-status' || cleaned === 'sync_status') return { cmd: 'sync_status' };
 
   // 跑测试：--model 可选（缺省时走默认文本模型 glm-4.5）
   if (cleaned.startsWith('跑测试') || cleaned.startsWith('run')) {
@@ -332,8 +345,8 @@ function summarize(lines, code) {
 }
 
 // ── ai-model-pricing API 调用 ────────────────────────────
-const PRICING_API = (process.env.PRICING_API_URL || 'https://ai-model-pricing-ten.vercel.app').replace(/\/$/, '');
-const PRICING_KEY = process.env.PRICING_API_KEY || '';
+const PRICING_API = PRICING_API_URL;
+const PRICING_KEY = PRICING_API_KEY;
 
 function pricingRequest(method, urlPath, body) {
   return new Promise((resolve, reject) => {
@@ -430,6 +443,17 @@ async function handleMessage(data) {
       '**🔧 补全用例**',
       '`补全用例`  AI 补全全部空字段',
       '`补全用例 --ability 视频生成·文本`  指定能力类型',
+      '',
+      '**💰 更新价格**',
+      '`更新价格 kling 2.6 55折`  更新单个模型折扣',
+      '`更新价格 kling 2.6 55折；kling 3.0 75折`  批量更新（分号分隔）',
+      '',
+      '**🔄 同步状态**',
+      '`同步状态`  从飞书规划文档同步「使用/接入/测试状态」到价格管理平台',
+      '',
+      '**📋 查询**',
+      '`可用模型`  查看已注册的可测试模型',
+      '`能力类型`  查看支持的能力类型列表',
     ].join('\n');
 
     await sendHelpCard(chatId, helpBody);
@@ -646,6 +670,34 @@ async function handleMessage(data) {
       bodyText,
       '📋 查看模型测试用例库',
       URL_CASES
+    );
+    return;
+  }
+
+  // 同步状态（飞书 -> ai-model-pricing）
+  if (parsed.cmd === 'sync_status') {
+    const scriptArgs = [SYNC_STATUS_SCRIPT];
+    await sendMsg(chatId, '⏳ 开始同步「使用状态」到 ai-model-pricing，完成后通知你。');
+
+    console.log(`\n[BOT] 执行: node ${scriptArgs.join(' ')}`);
+    const { code, lines } = await runTest(scriptArgs);
+
+    const infoLines = lines.filter(l =>
+      l.includes('提取到') ||
+      l.includes('状态汇总') ||
+      l.includes('完成:') ||
+      l.includes('❌') ||
+      l.includes('⚠️')
+    ).slice(0, 8);
+
+    const bodyText = infoLines.join('\n') || (code === 0 ? '状态同步完成' : '状态同步异常，请查看控制台日志');
+    await sendCard(
+      chatId,
+      code === 0 ? '✅ 状态同步完成' : '⚠️ 状态同步结束（有异常）',
+      code === 0 ? 'green' : 'orange',
+      bodyText,
+      '💰 查看价格表',
+      PRICING_API
     );
     return;
   }

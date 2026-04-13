@@ -1,5 +1,6 @@
 {
   "dependencies": {
-    "@larksuiteoapi/node-sdk": "^1.59.0"
+    "@larksuiteoapi/node-sdk": "^1.59.0",
+    "better-sqlite3": "^12.8.0"
   }
 }
