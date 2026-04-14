@@ -2,7 +2,7 @@
 /**
  * 从飞书「AI中台模型能力」规划文档读取状态 → 同步到 ai-model-pricing
  *
- * 同步字段：使用状态 / 接入状态 / 测试状态
+ * 同步字段：产品名称 / 使用状态 / 接入状态 / 测试状态
  * 匹配方式：规划文档「pricing关联名」→ ai-model-pricing 的 feishu_ref
  *
  * 用法:
@@ -81,6 +81,7 @@ function extractSyncItems(records) {
     if (!matchKey) continue;
 
     const modelLabel = modelName || matchKey;
+    const productName = normalizeText(fields['产品名称']);
     const vendor = normalizeText(fields['厂商']);
     const supplier = normalizeSelect(fields['供应商']);
     const usageStatus = normalizeSelect(fields['使用状态']);
@@ -88,10 +89,11 @@ function extractSyncItems(records) {
     const testStatus = normalizeSelect(fields['测试状态']);
 
     // 至少有一个字段有值才同步
-    if (!modelName && !vendor && !supplier && !usageStatus && !integrationStatus && !testStatus) continue;
+    if (!modelName && !productName && !vendor && !supplier && !usageStatus && !integrationStatus && !testStatus) continue;
 
     const item = { feishu_ref: matchKey, _label: modelLabel };
     if (modelName) item.model_name = modelName;
+    if (productName) item.product_name = productName;
     if (vendor) item.vendor = vendor;
     if (supplier) item.supplier = supplier;
     if (usageStatus) item.usage_status = usageStatus;
@@ -146,6 +148,7 @@ async function main() {
   console.log('\n同步汇总:');
   for (const item of items) {
     const parts = [];
+    if (item.product_name) parts.push(`产品:${item.product_name}`);
     if (item.vendor) parts.push(`厂商:${item.vendor}`);
     if (item.supplier) parts.push(`供应商:${item.supplier}`);
     if (item.usage_status) parts.push(`使用:${item.usage_status}`);
