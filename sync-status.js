@@ -91,7 +91,7 @@ function extractSyncItems(records) {
     // 至少有一个字段有值才同步
     if (!modelName && !productName && !vendor && !supplier && !usageStatus && !integrationStatus && !testStatus) continue;
 
-    const item = { feishu_ref: matchKey, _label: modelLabel };
+    const item = { feishu_ref: matchKey, feishu_record_id: r.record_id, _label: modelLabel };
     if (modelName) item.model_name = modelName;
     if (productName) item.product_name = productName;
     if (vendor) item.vendor = vendor;
@@ -138,6 +138,9 @@ async function main() {
       return normalizeText(f['pricing 关联名']) || normalizeText(f['模型名称']);
     })
     .filter(Boolean);
+  const allRecordIds = records
+    .map(r => r.record_id)
+    .filter(Boolean);
   console.log(`  飞书全量 matchKey: ${allFeishuRefs.length} 个`);
 
   if (items.length === 0) {
@@ -158,7 +161,7 @@ async function main() {
   }
 
   if (DRY_RUN) {
-    console.log(`\n🔍 dry-run 模式，共 ${items.length} 条可同步，${allFeishuRefs.length} 个飞书 matchKey，未写入`);
+    console.log(`\n🔍 dry-run 模式，共 ${items.length} 条可同步，${allFeishuRefs.length} 个飞书 matchKey，${allRecordIds.length} 个 record_id，未写入`);
     return;
   }
 
@@ -166,7 +169,11 @@ async function main() {
   const apiItems = items.map(({ _label, ...rest }) => rest);
 
   console.log('\n📤 同步到 ai-model-pricing...');
-  const result = await pricingRequest('POST', '/api/coze/sync-status', { items: apiItems, all_feishu_refs: allFeishuRefs });
+  const result = await pricingRequest('POST', '/api/coze/sync-status', {
+    items: apiItems,
+    all_feishu_refs: allFeishuRefs,
+    all_feishu_record_ids: allRecordIds,
+  });
 
   if (result.raw) {
     console.log('⚠️ API 返回非 JSON:', result.raw.slice(0, 200));
