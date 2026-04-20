@@ -76,6 +76,7 @@ function extractSyncItems(records) {
 
     // 匹配优先级：pricing关联名 > 模型名称
     const modelName = normalizeText(fields['模型名称']);
+    const modelId = normalizeText(fields['模型 ID'] ?? fields['模型ID']);
     const pricingName = normalizeText(fields['pricing 关联名']);
     const matchKey = pricingName || modelName;  // 匹配 pricing 的 feishu_ref
     if (!matchKey) continue;
@@ -89,10 +90,11 @@ function extractSyncItems(records) {
     const testStatus = normalizeSelect(fields['测试状态']);
 
     // 至少有一个字段有值才同步
-    if (!modelName && !productName && !vendor && !supplier && !usageStatus && !integrationStatus && !testStatus) continue;
+    if (!modelName && !modelId && !productName && !vendor && !supplier && !usageStatus && !integrationStatus && !testStatus) continue;
 
     const item = { feishu_ref: matchKey, feishu_record_id: r.record_id, _label: modelLabel };
     if (modelName) item.model_name = modelName;
+    if (modelId) item.model_id = modelId;
     if (productName) item.product_name = productName;
     if (vendor) item.vendor = vendor;
     if (supplier) item.supplier = supplier;
@@ -151,6 +153,8 @@ async function main() {
   console.log('\n同步汇总:');
   for (const item of items) {
     const parts = [];
+    if (item.model_name) parts.push(`家族:${item.model_name}`);
+    if (item.model_id) parts.push(`模型ID:${item.model_id}`);
     if (item.product_name) parts.push(`产品:${item.product_name}`);
     if (item.vendor) parts.push(`厂商:${item.vendor}`);
     if (item.supplier) parts.push(`供应商:${item.supplier}`);
