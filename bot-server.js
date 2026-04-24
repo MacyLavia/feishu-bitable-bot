@@ -9,6 +9,7 @@
  *   @机器人 跑测试 --model midjourney --ability 图像生成·文本
  *   @机器人 跑测试 --model glm-4.5              （文本模型，via Dify）
  *   @机器人 跑测试 --model glm-4.5 --siliconflow （文本模型，via SiliconFlow）
+ *   @机器人 同步接入状态   （按 dify-extension origin/main + origin/develop 源码三态刷新接入状态：已接入 / 接入中 / 已下线）
  *   @机器人 帮助
  */
 
@@ -33,6 +34,7 @@ const MEDIA_SCRIPT = 'run-media-test.js';
 const SCORE_SCRIPT = 'ai-scoring.js';
 const PATCH_SCRIPT = 'patch-cases.js';
 const SYNC_STATUS_SCRIPT = 'sync-status.js';
+const SYNC_INTEGRATION_SCRIPT = 'sync-integration.js';
 
 const { MEDIA_MODELS, DIFY_TEXT_MODELS, ABILITY_PREFIXES, MODEL_REGISTRY } = require('./models.config');
 
@@ -179,6 +181,7 @@ function parseCommand(text) {
   if (cleaned === '可用模型' || cleaned === 'models') return { cmd: 'show_models' };
   if (cleaned === '能力类型' || cleaned === 'abilities') return { cmd: 'show_abilities' };
   if (cleaned === '同步状态' || cleaned === 'sync-status' || cleaned === 'sync_status') return { cmd: 'sync_status' };
+  if (cleaned === '同步接入状态' || cleaned === 'sync-integration' || cleaned === 'sync_integration') return { cmd: 'sync_integration' };
 
   // 跑测试：--model 可选（缺省时走默认文本模型 glm-4.5）
   if (cleaned.startsWith('跑测试') || cleaned.startsWith('run')) {
@@ -450,6 +453,7 @@ async function handleMessage(data) {
       '',
       '**🔄 同步状态**',
       '`同步状态`  从飞书规划文档同步「使用/接入/测试状态」到价格管理平台',
+      '`同步接入状态`  按 dify-extension main/develop 源码三态刷新飞书「模型清单」接入状态：main 有 → 已接入、只 develop 有 → 接入中、两边都没 → 已下线',
       '',
       '**📋 查询**',
       '`可用模型`  查看已注册的可测试模型',
@@ -670,6 +674,37 @@ async function handleMessage(data) {
       bodyText,
       '📋 查看模型测试用例库',
       URL_CASES
+    );
+    return;
+  }
+
+  // 同步接入状态（dify-extension py → 飞书「模型清单」）
+  if (parsed.cmd === 'sync_integration') {
+    const scriptArgs = [SYNC_INTEGRATION_SCRIPT];
+    await sendMsg(chatId, '⏳ 开始按 dify-extension 源码刷新飞书「接入状态」，完成后通知你。');
+
+    console.log(`\n[BOT] 执行: node ${scriptArgs.join(' ')}`);
+    const { code, lines } = await runTest(scriptArgs);
+
+    const infoLines = lines.filter(l =>
+      l.includes('本次将更新') ||
+      l.includes('🟢') ||
+      l.includes('🟡') ||
+      l.includes('🔻') ||
+      l.includes('✅ 已写入') ||
+      l.includes('完成：') ||
+      l.includes('无改动') ||
+      l.includes('❌')
+    ).slice(0, 40);
+
+    const bodyText = infoLines.join('\n') || (code === 0 ? '同步完成' : '同步异常，请查看控制台日志');
+    await sendCard(
+      chatId,
+      code === 0 ? '✅ 接入状态同步完成' : '⚠️ 接入状态同步结束（有异常）',
+      code === 0 ? 'green' : 'orange',
+      bodyText,
+      '📋 查看模型清单',
+      'https://atmob.feishu.cn/base/IzlCbNPjbaF38As26IJcSd47nKh?table=tbloWaN3VqosiudO'
     );
     return;
   }
