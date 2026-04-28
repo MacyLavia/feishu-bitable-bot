@@ -105,6 +105,10 @@ function buildAbilitiesBody() {
 const processedMsgIds = new Set();
 const BOT_START_MS = Date.now();
 
+// ── 当前正在跑的子进程（用于「停止」命令）────────────────
+let currentProc = null;
+let currentTask = null;  // { cmd: '描述', startedAt: 时间戳 }
+
 // ── 飞书 API（原生 https，避免 axios ECONNRESET）─────────
 function reqFeishu(method, path, body, token) {
   return new Promise((resolve, reject) => {
@@ -180,6 +184,7 @@ function parseCommand(text) {
   if (cleaned === '帮助' || cleaned === 'help') return { cmd: 'help' };
   if (cleaned === '可用模型' || cleaned === 'models') return { cmd: 'show_models' };
   if (cleaned === '能力类型' || cleaned === 'abilities') return { cmd: 'show_abilities' };
+  if (cleaned === '停止' || cleaned === 'stop' || cleaned === '取消' || cleaned === 'cancel') return { cmd: 'stop' };
   if (cleaned === '同步状态' || cleaned === 'sync-status' || cleaned === 'sync_status') return { cmd: 'sync_status' };
   if (cleaned === '同步接入状态' || cleaned === 'sync-integration' || cleaned === 'sync_integration') return { cmd: 'sync_integration' };
 
@@ -226,6 +231,8 @@ function runTest(scriptArgs) {
   return new Promise((resolve) => {
     const lines = [];
     const proc  = spawn('node', scriptArgs, { cwd: __dirname });
+    currentProc = proc;
+    currentTask = { cmd: scriptArgs.join(' '), startedAt: Date.now() };
 
     proc.stdout.on('data', (d) => {
       const s = d.toString();
@@ -237,8 +244,21 @@ function runTest(scriptArgs) {
       process.stderr.write(s);
       lines.push('ERR: ' + s.trim());
     });
-    proc.on('close', (code) => resolve({ code, lines }));
+    proc.on('close', (code, signal) => {
+      currentProc = null;
+      currentTask = null;
+      resolve({ code, signal, lines });
+    });
   });
+}
+
+// 停止当前正在跑的子进程
+function stopCurrentTask() {
+  if (!currentProc) return null;
+  const task = currentTask;
+  try { currentProc.kill('SIGKILL'); } catch (e) {}
+  // close 监听会清掉 currentProc / currentTask
+  return task;
 }
 
 // ── 发送卡片消息（带跳转按钮，失败自动重试 3 次）────────
@@ -421,6 +441,18 @@ async function handleMessage(data) {
     return;
   }
 
+  // 停止当前任务
+  if (parsed.cmd === 'stop') {
+    const task = stopCurrentTask();
+    if (!task) {
+      await sendMsg(chatId, 'ℹ️  当前没有正在运行的任务');
+    } else {
+      const elapsed = Math.round((Date.now() - task.startedAt) / 1000);
+      await sendMsg(chatId, `🛑 已强制停止任务（运行了 ${elapsed}s）\n命令：${task.cmd}`);
+    }
+    return;
+  }
+
   // 帮助
   if (parsed.cmd === 'help') {
     const helpBody = [
@@ -454,6 +486,9 @@ async function handleMessage(data) {
       '**🔄 同步状态**',
       '`同步状态`  从飞书规划文档同步「使用/接入/测试状态」到价格管理平台',
       '`同步接入状态`  按 dify-extension main/develop 源码三态刷新飞书「模型清单」接入状态：main 有 → 已接入、只 develop 有 → 接入中、两边都没 → 已下线',
+      '',
+      '**🛑 停止**',
+      '`停止`  强制停止当前正在运行的任务（跑测试 / 评分 / 补全 / 同步等）',
       '',
       '**📋 查询**',
       '`可用模型`  查看已注册的可测试模型',
@@ -518,7 +553,22 @@ async function handleMessage(data) {
       );
 
     } else {
-      // 文本模型：model 缺省时用默认模型
+      // 文本模型：model 缺省时用默认模型；给了名字必须在 DIFY_TEXT_MODELS 白名单里
+      const textModelNames = DIFY_TEXT_MODELS.map(m => m.model);
+      if (friendlyName && !textModelNames.includes(friendlyName)) {
+        // 既不是已注册的媒体模型，也不是已注册的文本模型 → 拒绝兜底，明确报错
+        const allRegistered = [...MEDIA_MODELS, ...textModelNames];
+        await sendMsg(chatId,
+          `❌ 模型「${friendlyName}」未在 models.config.js 中注册\n\n` +
+          `可能原因：\n` +
+          `1. 该模型还没接入飞书测试体系（用 register-test-model skill 接入）\n` +
+          `2. 飞书侧 pricing 关联名跟 models.config.js 的 registry key 不一致\n` +
+          `3. 该模型在运营组工作流里还没加 IF 分支（找开发同学）\n\n` +
+          `已注册模型（${allRegistered.length}）：\n` +
+          allRegistered.map(m => `· ${m}`).join('\n')
+        );
+        return;
+      }
       const actualModel = friendlyName || DIFY_TEXT_MODELS[0].model;
 
       const scriptArgs = [TEXT_SCRIPT, '--model', actualModel];
