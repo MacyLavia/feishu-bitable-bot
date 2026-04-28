@@ -21,4 +21,12 @@ module.exports = {
   SILICONFLOW_KEY:   process.env.SILICONFLOW_KEY    || '',
   PRICING_API_URL:   (process.env.PRICING_API_URL   || 'http://localhost:3000').replace(/\/$/, ''),
   PRICING_API_KEY:   process.env.PRICING_API_KEY    || '',
+
+  // Dify 工作流凭据（不要硬编码）
+  DIFY_HOST:         process.env.DIFY_HOST         || '43.160.192.41',
+  DIFY_PORT:         parseInt(process.env.DIFY_PORT || '9090', 10),
+  DIFY_UNIFIED_KEY:  process.env.DIFY_UNIFIED_KEY  || '',  // 开发团队维护的统一工作流（推荐）
+  DIFY_IMAGE_KEY:    process.env.DIFY_IMAGE_KEY    || '',  // legacy: dev_huang_图像生成
+  DIFY_VIDEO_KEY:    process.env.DIFY_VIDEO_KEY    || '',  // legacy: dev_huang_视频生成
+  DIFY_TEXT_KEY:     process.env.DIFY_TEXT_KEY     || '',  // legacy: dev_huang_文本生成
 };

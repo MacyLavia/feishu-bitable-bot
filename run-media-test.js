@@ -13,16 +13,28 @@
 
 const https = require('https');
 const http  = require('http');
-const { FEISHU_APP_ID, FEISHU_APP_SECRET } = require('./config');
+const {
+  FEISHU_APP_ID, FEISHU_APP_SECRET,
+  DIFY_HOST, DIFY_PORT, DIFY_UNIFIED_KEY,
+} = require('./config');
 
 // ── 飞书配置 ──────────────────────────────────────────────
 const BITABLE          = 'WOyBb34Spa4nTOsevVacMJLTnNg';
 const TABLE_CASES      = 'tblSdLU5MjOqzIXp';
 const TABLE_RECORDS    = 'tbleffJEDv4VSd59';
 
-// ── Dify 服务地址 ──────────────────────────────────────────
-const DIFY_HOST = '43.160.192.41';
-const DIFY_PORT = 9090;
+// ── 媒体模型统一调用：所有图像/视频/口型走运营组工作流（DIFY_UNIFIED_KEY）─
+// 入参契约：基础 { type, prompt, model, image_url } + cfg.extraInputs（模型特异参数，如 quality_mode）
+// 输出契约：outputs.file_url
+function buildUnifiedInputs(cfg, prompt, imageUrl) {
+  return {
+    type:      cfg.type,
+    prompt,
+    model:     cfg.difyModelId,
+    image_url: imageUrl || '',
+    ...(cfg.extraInputs || {}),  // 合并模型特异参数
+  };
+}
 
 // ── 模型注册表（从共享配置读取）──────────────────────────
 // 新增模型：只改 models.config.js，同时在 Dify 工作流加 IF 分支
@@ -71,7 +83,9 @@ function callDify(difyKey, inputs, timeoutMs) {
           if (j.data?.status !== 'succeeded') {
             reject(new Error('Dify 失败: ' + (j.data?.error || JSON.stringify(j).slice(0, 100))));
           } else {
-            resolve({ url: j.data.outputs?.result || '', elapsed: parseFloat(elapsed) });
+            // 运营组工作流用 outputs.file_url；兼容旧 dev_huang_* 工作流的 outputs.result（过渡期保留）
+            const url = j.data.outputs?.file_url || j.data.outputs?.result || '';
+            resolve({ url, elapsed: parseFloat(elapsed) });
           }
         } catch(e) { reject(e); }
       });
@@ -269,12 +283,13 @@ async function main() {
     console.log('    Prompt: ' + prompt.slice(0, 80) + (prompt.length > 80 ? '...' : ''));
     if (imageUrl) console.log('    输入图: ' + imageUrl.slice(0, 80));
 
-    // 调用 Dify（带重试）
-    process.stdout.write(`    调用 ${TARGET_MODEL}...`);
+    // 调用 Dify（带重试）—— 统一走运营组工作流
+    // 飞书 internal URL 直接传 image_url：运营工作流内部能拉飞书附件，无需中转
+    process.stdout.write(`    调用 ${TARGET_MODEL} → ${cfg.difyModelId}...`);
     let mediaUrl = '', elapsed = 0;
     try {
       const result = await callDifyWithRetry(
-        cfg.difyKey, cfg.difyInputs(prompt, imageUrl), cfg.timeout, TARGET_MODEL
+        DIFY_UNIFIED_KEY, buildUnifiedInputs(cfg, prompt, imageUrl), cfg.timeout, TARGET_MODEL
       );
       mediaUrl = result.url;
       elapsed  = result.elapsed;

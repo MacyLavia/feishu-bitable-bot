@@ -65,69 +65,161 @@ function isTextAbility(ability) {
   return cfg.isText;
 }
 
-// ── 图像 / 视频模型注册表（走 Dify 工作流）────────────────
+// ── 图像 / 视频 / 口型模型注册表（统一走运营组工作流 DIFY_UNIFIED_KEY）──
 //
-//  outputField 可选值：输出图像附件 / 输出视频附件 / 输出音频附件
-//  mimeType   : 上传飞书时的文件 MIME 类型
-//  ext        : 文件扩展名
-//  abilities  : 匹配用例库「能力类型」字段的值（必须在 ABILITY_PREFIXES 中已登记）
-//  timeout    : Dify 调用超时（毫秒）
+//  type        : image / video / lip-sync（运营组工作流的 type 字段，决定 IF 大类路由）
+//  difyModelId : 飞书「模型 ID」字段值（运营组工作流 IF 分支匹配值）
+//  outputField : 输出图像附件 / 输出视频附件 / 输出音频附件
+//  mimeType    : 上传飞书时的文件 MIME 类型
+//  ext         : 文件扩展名
+//  abilities   : 匹配用例库「能力类型」字段的值（必须在 ABILITY_PREFIXES 中已登记）
+//  timeout     : Dify 调用超时（毫秒）
+//  friendlyNames: bot 命令 --model 的别名（registry key 本身已经是主匹配键）
+//
+//  registry key 约定 = 飞书「pricing 关联名」（用户业务标识）；新增模型必须按此约定
+//  接入新模型：在飞书填好 pricing 关联名 + 模型 ID + 接入状态，跑 register-test-model skill
 //
 const MODEL_REGISTRY = {
 
-  // ── 图像生成（dev_huang_图像生成 工作流）─────────────────
+  // ── 图像 ──────────────────────────────────────────────────
   'midjourney': {
-    difyKey:      'app-t6QHK94kBcV2bXsvCny2t6wJ',
-    difyInputs:   (prompt, imageUrl) => ({ prompt, model: 'midjourney', i_url: imageUrl || '' }),
-    outputField:  '输出图像附件',
-    mimeType:     'image/jpeg',
-    ext:          'jpg',
-    abilities:    ['图像生成·文本', '图像生成·文本+图像', '图像生成·图生图'],
-    timeout:      240000,
-    friendlyNames: ['Midjourney', 'midjourney', 'MJ'],
+    type:        'image',
+    difyModelId: 'hk-midjourney',
+    outputField: '输出图像附件',
+    mimeType:    'image/jpeg',
+    ext:         'jpg',
+    abilities:   ['图像生成·文本', '图像生成·文本+图像', '图像生成·图生图'],
+    timeout:     240000,
+    friendlyNames: ['Midjourney', 'MJ', 'midjourney-中转HK'],
   },
   'doubao-seedream-5.0-lite': {
-    difyKey:      'app-t6QHK94kBcV2bXsvCny2t6wJ',
-    difyInputs:   (prompt, imageUrl) => ({ prompt, model: 'doubao-seedream-5.0-lite', i_url: imageUrl || '' }),
-    outputField:  '输出图像附件',
-    mimeType:     'image/jpeg',
-    ext:          'jpg',
-    abilities:    ['图像生成·文本', '图像生成·文本+图像', '图像生成·图生图'],
-    timeout:      240000,
+    type:        'image',
+    difyModelId: 'doubao-seedream-5.0-lite',
+    outputField: '输出图像附件',
+    mimeType:    'image/jpeg',
+    ext:         'jpg',
+    abilities:   ['图像生成·文本', '图像生成·文本+图像', '图像生成·图生图'],
+    timeout:     240000,
     friendlyNames: ['seedream-5.0', 'seedream-5.0-lite'],
   },
-  // 待凭据可用 + Dify 工作流加 IF 分支后解注释：
-  // 'cogview-4-250304': {
-  //   difyKey:      'app-t6QHK94kBcV2bXsvCny2t6wJ',
-  //   difyInputs:   (prompt) => ({ prompt, model: 'cogview-4-250304' }),
-  //   outputField:  '输出图像附件',
-  //   mimeType:     'image/jpeg',
-  //   ext:          'jpg',
-  //   abilities:    ['图像生成·文本'],
-  //   timeout:      60000,
-  //   friendlyNames: ['cogview', 'CogView'],
-  // },
-
-  // ── 视频生成（dev_huang_视频生成 工作流）─────────────────
-  'doubao-seedance-1-0-lite-t2v': {
-    difyKey:      'app-FdMdpGKycnOIj9Iwf5jiyS9q',
-    difyInputs:   (prompt) => ({ prompt, model: 'doubao-seedance-1-0-lite-t2v' }),
-    outputField:  '输出视频附件',
-    mimeType:     'video/mp4',
-    ext:          'mp4',
-    abilities:    ['视频生成·文本'],
-    timeout:      180000,
-    friendlyNames: ['豆包-Seedance-Lite'],  // ability 不含「图像」时路由到此
+  'gpt-image-2-打开科技': {
+    type:        'image',
+    difyModelId: 'gpt-image-2',
+    outputField: '输出图像附件',
+    mimeType:    'image/png',
+    ext:         'png',
+    abilities:   ['图像生成·文本', '图像生成·文本+图像', '图像生成·图生图'],
+    timeout:     240000,
+    friendlyNames: ['gpt-image-2-打开科技'],
   },
-  'doubao-seedance-1-0-lite-i2v': {
-    difyKey:      'app-FdMdpGKycnOIj9Iwf5jiyS9q',
-    difyInputs:   (prompt, imageUrl) => ({ prompt, model: 'doubao-seedance-1-0-lite-i2v', i_url: imageUrl || '' }),
-    outputField:  '输出视频附件',
-    mimeType:     'video/mp4',
-    ext:          'mp4',
-    abilities:    ['视频生成·文本+图像', '视频生成·图像(首帧)'],
-    timeout:      180000,
-    friendlyNames: [],  // 共享豆包-Seedance-Lite，ability 含「图像」时路由到此
+  'Wan2.7-image-pro': {
+    type:        'image',
+    difyModelId: 'wan2.7-image-pro',
+    outputField: '输出图像附件',
+    mimeType:    'image/png',
+    ext:         'png',
+    abilities:   ['图像生成·文本'],
+    timeout:     240000,
+    friendlyNames: ['Wan2.7-image-pro'],
+  },
+
+  // ── 视频 ──────────────────────────────────────────────────
+  'doubao-seedance-1-0-lite-t2v-智谱': {
+    type:        'video',
+    difyModelId: 'doubao-seedance-lite-t2v',
+    outputField: '输出视频附件',
+    mimeType:    'video/mp4',
+    ext:         'mp4',
+    abilities:   ['视频生成·文本'],
+    timeout:     180000,
+    friendlyNames: ['豆包-Seedance-Lite', 'doubao-seedance-1-0-lite-t2v-智谱'],  // ability 不含「图像」时路由到此
+  },
+  'doubao-seedance-1-0-lite-i2v-智谱': {
+    type:        'video',
+    difyModelId: 'doubao-seedance-lite-i2v',
+    outputField: '输出视频附件',
+    mimeType:    'video/mp4',
+    ext:         'mp4',
+    abilities:   ['视频生成·文本+图像', '视频生成·图像(首帧)'],
+    timeout:     180000,
+    friendlyNames: ['doubao-seedance-1-0-lite-i2v-智谱'],  // 共享豆包-Seedance-Lite，ability 含「图像」时路由到此
+  },
+  'happyhorse-1.0-i2v-720p': {
+    type:        'video',
+    difyModelId: 'happyhorse-1.0-i2v',
+    outputField: '输出视频附件',
+    mimeType:    'video/mp4',
+    ext:         'mp4',
+    abilities:   ['视频生成·图像'],
+    timeout:     600000,
+    friendlyNames: ['happyhorse-1.0-i2v-720p'],
+    extraInputs: { resolution: '720P', duration: 5 },  // 抄运营后台真实成功 run 的 inputs
+  },
+  'happyhorse-1.0-i2v-1080p': {
+    type:        'video',
+    difyModelId: 'happyhorse-1.0-i2v',
+    outputField: '输出视频附件',
+    mimeType:    'video/mp4',
+    ext:         'mp4',
+    abilities:   ['视频生成·图像'],
+    timeout:     600000,
+    friendlyNames: ['happyhorse-1.0-i2v-1080p'],
+    extraInputs: { resolution: '1080P', duration: 5 },
+  },
+  'happyhorse-1.0-t2v-720p': {
+    type:        'video',
+    difyModelId: 'happyhorse-1.0-t2v',
+    outputField: '输出视频附件',
+    mimeType:    'video/mp4',
+    ext:         'mp4',
+    abilities:   ['视频生成·文本+图像', '视频生成·文本'],
+    timeout:     600000,
+    friendlyNames: ['happyhorse-1.0-t2v-720p'],
+    extraInputs: { resolution: '720P', duration: 5, aspect_ratio: '16:9' },  // T2V 必传 ratio
+  },
+  'happyhorse-1.0-r2v-720p': {
+    type:        'video',
+    difyModelId: 'happyhorse-1.0-r2v',
+    outputField: '输出视频附件',
+    mimeType:    'video/mp4',
+    ext:         'mp4',
+    abilities:   ['视频生成·文本+图像', '视频生成·文本', '视频生成·文本(可选+图像)', '视频生成·图像'],
+    timeout:     600000,
+    friendlyNames: ['happyhorse-1.0-r2v-720p'],
+    extraInputs: { resolution: '720P', duration: 5, aspect_ratio: '16:9' },
+  },
+  'happyhorse-1.0-r2v-1080p': {
+    type:        'video',
+    difyModelId: 'happyhorse-1.0-r2v',
+    outputField: '输出视频附件',
+    mimeType:    'video/mp4',
+    ext:         'mp4',
+    abilities:   ['视频生成·文本+图像', '视频生成·文本', '视频生成·文本(可选+图像)', '视频生成·图像'],
+    timeout:     600000,
+    friendlyNames: ['happyhorse-1.0-r2v-1080p'],
+    extraInputs: { resolution: '1080P', duration: 5, aspect_ratio: '16:9' },
+  },
+  'happyhorse-1.0-video-edit-720p': {
+    type:        'video',
+    difyModelId: 'happyhorse-1.0-video-edit',
+    outputField: '输出视频附件',
+    mimeType:    'video/mp4',
+    ext:         'mp4',
+    abilities:   ['视频生成·运镜', '视频生成·混剪', '视频生成·视频续写', '视频生成·指令跟随', '视频生成·图像(首帧)', '视频生成·首尾帧'],
+    timeout:     600000,
+    friendlyNames: ['happyhorse-1.0-video-edit-720p'],
+    extraInputs: { resolution: '720P' },  // EDIT 不需要 duration
+  },
+  'happyhorse-1.0-video-edit-1080p': {
+    type:        'video',
+    difyModelId: 'happyhorse-1.0-video-edit',
+    outputField: '输出视频附件',
+    mimeType:    'video/mp4',
+    ext:         'mp4',
+    abilities:   ['视频生成·运镜', '视频生成·混剪', '视频生成·视频续写', '视频生成·指令跟随', '视频生成·图像(首帧)', '视频生成·首尾帧'],
+    timeout:     600000,
+    friendlyNames: ['happyhorse-1.0-video-edit-1080p'],
+    extraInputs: { resolution: '1080P' },
   },
 };
 
