@@ -3,7 +3,8 @@
  *
  * 给定模型注册 key，发一条最短 prompt 到 Dify 工作流，验证：
  *   ✅  IF 分支已接好（输出附件 URL 非空）
- *   ⚠️  Dify 200 但输出为空（IF 分支没匹配上 model 字段）
+ *   ⚠️  IF 没匹配（outputs 完全空 {}）—— model 字段拼错 / type 错
+ *   🛠️  IF 接好但工具内错（outputs.error 有内容）—— 入参字段缺失 / 内容审核 / 下游 API Pydantic 验错
  *   ❌  超时 / HTTP 错误（凭据 / 网络 / 工作流挂了）
  *
  * 不写飞书、不下载文件、不改任何状态，纯调用 + 解析。
@@ -18,7 +19,7 @@
  *   # 显式传 key（仅当 .env 还没配，不要在 commit 里出现明文）
  *   node scripts/dify-smoke-test.js --key app-xxxxx --inputs '{...}'
  *
- * 退出码: 0 = ✅ ; 2 = ⚠️ ; 1 = ❌
+ * 退出码: 0 = ✅ ; 2 = ⚠️ IF 没匹配 ; 3 = 🛠️ 工具内错 ; 1 = ❌ 网络/HTTP
  */
 
 const http = require('http');
@@ -138,22 +139,59 @@ async function main() {
     process.exit(1);
   }
 
-  // 兼容两种输出契约：旧 dev_huang_* 工作流用 outputs.result，新统一工作流用 outputs.file_url
+  // 兼容两种输出契约：旧 dev_huang_* 用 outputs.result，新统一工作流用 outputs.file_url
   const result = data.outputs?.result || data.outputs?.file_url;
-  if (!result || result === '') {
-    console.log(`⚠️  Dify 200 但输出为空（IF 分支可能没匹配上）`);
-    console.log('outputs:', JSON.stringify(data.outputs, null, 2));
-    console.log('\n排查方向：');
-    console.log(`  1. 运营组工作流 IF 分支匹配的是不是 type="${smokeInputs.type}" + model="${smokeInputs.model}"？`);
-    console.log(`  2. Dify URL: http://${DIFY_HOST}:${DIFY_PORT}/app/<工作流ID>/workflow`);
-    console.log(`  3. 飞书侧「模型 ID」字段是否跟运营组工作流命名一致？`);
-    process.exit(2);
+  // 工具内错：工作流 status=succeeded 但 outputs.error 有内容（绿网 / Pydantic 验错 / 下载失败等）
+  const toolError = data.outputs?.error || '';
+  const totalSteps = data.total_steps;
+  const elapsedSec = data.elapsed_time;
+  // 区分 IF 没匹配 vs IF 匹配但工具静默 return：看 outputs 是否有 keys
+  // - IF 没匹配：outputs={}（完全空对象），total_steps≈2
+  // - IF 匹配但工具入参错静默退出：outputs={file_url:null, error:null, ...}（有 keys 但全 null），total_steps=6
+  // - IF 匹配 + 工具报错：outputs.error 有 message
+  const outputsHasKeys = data.outputs && Object.keys(data.outputs).length > 0;
+
+  if (result) {
+    console.log(`✅  Dify IF 分支已接好`);
+    console.log(`    输出 URL: ${String(result).slice(0, 120)}${String(result).length > 120 ? '...' : ''}`);
+    console.log(`\n下一步可跑：node run-media-test.js --model ${TARGET} --case <用例编号>`);
+    process.exit(0);
   }
 
-  console.log(`✅  Dify IF 分支已接好`);
-  console.log(`    输出 URL: ${String(result).slice(0, 120)}${String(result).length > 120 ? '...' : ''}`);
-  console.log(`\n下一步可跑：node run-media-test.js --model ${TARGET}`);
-  process.exit(0);
+  if (toolError || outputsHasKeys) {
+    // IF 匹配（要么有 error 要么 outputs 有 keys 但 file_url 是 null/空）
+    if (toolError) {
+      console.log(`🛠️  IF 已匹配但工具内错: ${toolError}`);
+    } else {
+      console.log(`🛠️  IF 已匹配但工具静默 return（outputs 字段全 null，无 error message）`);
+      console.log(`    通常意味着工具内部 sub-IF 按 model 再分流时缺必填字段（典型：video-edit 缺 video_url；i2v 缺 image_url）`);
+    }
+    console.log(`    (total_steps=${totalSteps}, elapsed=${elapsedSec}s, IF 走完整 6 步说明匹配 OK)`);
+    console.log('\n按错误关键词指向：');
+    if (/Input should be|parameters\./.test(toolError)) {
+      console.log(`  - "Input should be ..." / "parameters.X" → 看 §0 步骤 ③ tool_configurations，extraInputs 漏了哪个字段`);
+      console.log(`    （注意：user_input_form 字段名 ≠ tool 入参，例如 user 传 resolution → tool 实际从 quality_mode 读）`);
+    }
+    if (/Failed to download|Download/i.test(toolError)) {
+      console.log(`  - "Failed to download ..." → 传给工作流的 URL 不可达（飞书 internal URL/dashscope OSS 通；境外 CDN 不通；过期签名 URL 不通）`);
+    }
+    if (/Green net|审核|moderation/i.test(toolError)) {
+      console.log(`  - "Green net" → 内容审核拒绝，输入图/视频含敏感内容（不是代码问题，换 case，别 retry）`);
+    }
+    if (!toolError) {
+      console.log(`  - 工具静默 return → smoke 用最短 prompt 没传媒体类输入，正常。需要 run-media-test.js 跑一条带正确 image_url/video_url/audio_url 的真 case 才能验全`);
+    }
+    process.exit(3);
+  }
+
+  // outputs 完全空对象：IF 没匹配
+  console.log(`⚠️  IF 没匹配上（outputs={} 完全空 — total_steps=${totalSteps}，正常匹配应=6）`);
+  console.log('outputs:', JSON.stringify(data.outputs, null, 2));
+  console.log('\n排查方向：');
+  console.log(`  1. 运营组工作流 IF 条件是不是 type="${smokeInputs.type}" + model="${smokeInputs.model}" 这套？大小写敏感`);
+  console.log(`  2. 飞书侧「模型 ID」字段是否跟运营组工作流 IF 命名一致（model 值要逐字符匹配）`);
+  console.log(`  3. 让用户去 Dify console 看 IF 分支配置: http://${DIFY_HOST}:${DIFY_PORT}/app/<工作流ID>/workflow`);
+  process.exit(2);
 }
 
 main().catch(e => { console.error('\n❌  ' + e.message); process.exit(1); });
