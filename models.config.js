@@ -177,6 +177,17 @@ const MODEL_REGISTRY = {
     friendlyNames: ['happyhorse-1.0-t2v-720p'],
     extraInputs: { quality_mode: '720P', duration: 5, aspect_ratio: '16:9' },  // T2V 必传 ratio
   },
+  'happyhorse-1.0-t2v-1080p': {
+    type:        'video',
+    difyModelId: 'happyhorse-1.0-t2v',
+    outputField: '输出视频附件',
+    mimeType:    'video/mp4',
+    ext:         'mp4',
+    abilities:   ['视频生成·文本+图像', '视频生成·文本'],
+    timeout:     600000,
+    friendlyNames: ['happyhorse-1.0-t2v-1080p'],
+    extraInputs: { quality_mode: '1080P', duration: 5, aspect_ratio: '16:9' },
+  },
   'happyhorse-1.0-r2v-720p': {
     type:        'video',
     difyModelId: 'happyhorse-1.0-r2v',
