@@ -24,14 +24,22 @@ const TABLE_CASES      = 'tblSdLU5MjOqzIXp';
 const TABLE_RECORDS    = 'tbleffJEDv4VSd59';
 
 // ── 媒体模型统一调用：所有图像/视频/口型走运营组工作流（DIFY_UNIFIED_KEY）─
-// 入参契约：基础 { type, prompt, model, image_url } + cfg.extraInputs（模型特异参数，如 quality_mode）
+// 入参契约：基础 { type, prompt, model, image_url, video_url, audio_url } + cfg.extraInputs
 // 输出契约：outputs.file_url
-function buildUnifiedInputs(cfg, prompt, imageUrl) {
+//
+// 注意每个模型的「内部 tool」按 model 字段值再分支选用其中之一：
+//   - i2v / r2v / 图生图：读 image_url
+//   - video-edit / 视频续写 / 运镜 等：读 video_url
+//   - 口型驱动：读 audio_url（+ image_url 或 video_url）
+// 不需要的字段传空字符串即可，运营组工作流接收所有字段（user_input_form 都标 optional）
+function buildUnifiedInputs(cfg, prompt, imageUrl, videoUrl, audioUrl) {
   return {
     type:      cfg.type,
     prompt,
     model:     cfg.difyModelId,
     image_url: imageUrl || '',
+    video_url: videoUrl || '',
+    audio_url: audioUrl || '',
     ...(cfg.extraInputs || {}),  // 合并模型特异参数
   };
 }
@@ -85,7 +93,14 @@ function callDify(difyKey, inputs, timeoutMs) {
           } else {
             // 运营组工作流用 outputs.file_url；兼容旧 dev_huang_* 工作流的 outputs.result（过渡期保留）
             const url = j.data.outputs?.file_url || j.data.outputs?.result || '';
-            resolve({ url, elapsed: parseFloat(elapsed) });
+            // 工作流 status=succeeded 不代表生成成功 — 工具内部错误会写到 outputs.error
+            // 典型场景：内容审核失败(Green net)、模型 API Pydantic 验错、上游下载超时
+            const toolError = j.data.outputs?.error || '';
+            if (!url && toolError) {
+              reject(new Error('工具内错: ' + toolError));
+            } else {
+              resolve({ url, elapsed: parseFloat(elapsed) });
+            }
           }
         } catch(e) { reject(e); }
       });
@@ -271,25 +286,32 @@ async function main() {
     const prompt  = Array.isArray(f['Prompt / 指令'])
       ? f['Prompt / 指令'].map(t => t.text).join('') : (f['Prompt / 指令'] || '');
 
-    // 读取输入图像附件（图生视频等用例）
-    let imageUrl = '';
-    const imgAttachments = f['输入图像附件'];
-    if (Array.isArray(imgAttachments) && imgAttachments.length > 0) {
-      const fileToken = imgAttachments[0].file_token;
-      if (fileToken) imageUrl = await getAttachmentTmpUrl(fileToken, token);
+    // 读取所有可能的输入附件 — 工作流根据模型自己选用哪个
+    async function getAttachmentUrl(fieldName) {
+      const att = f[fieldName];
+      if (!Array.isArray(att) || att.length === 0) return '';
+      const fileToken = att[0].file_token;
+      return fileToken ? await getAttachmentTmpUrl(fileToken, token) : '';
     }
+    const imageUrl = await getAttachmentUrl('输入图像附件');
+    const videoUrl = await getAttachmentUrl('输入视频附件');
+    const audioUrl = await getAttachmentUrl('输入音频附件');
 
     console.log(`  ▶ [${ability}]  ${caseId}`);
     console.log('    Prompt: ' + prompt.slice(0, 80) + (prompt.length > 80 ? '...' : ''));
     if (imageUrl) console.log('    输入图: ' + imageUrl.slice(0, 80));
+    if (videoUrl) console.log('    输入视频: ' + videoUrl.slice(0, 80));
+    if (audioUrl) console.log('    输入音频: ' + audioUrl.slice(0, 80));
 
     // 调用 Dify（带重试）—— 统一走运营组工作流
-    // 飞书 internal URL 直接传 image_url：运营工作流内部能拉飞书附件，无需中转
+    // 飞书 internal URL 直接传给工作流：运营工作流内部能拉飞书附件，无需中转
     process.stdout.write(`    调用 ${TARGET_MODEL} → ${cfg.difyModelId}...`);
     let mediaUrl = '', elapsed = 0;
     try {
       const result = await callDifyWithRetry(
-        DIFY_UNIFIED_KEY, buildUnifiedInputs(cfg, prompt, imageUrl), cfg.timeout, TARGET_MODEL
+        DIFY_UNIFIED_KEY,
+        buildUnifiedInputs(cfg, prompt, imageUrl, videoUrl, audioUrl),
+        cfg.timeout, TARGET_MODEL
       );
       mediaUrl = result.url;
       elapsed  = result.elapsed;
