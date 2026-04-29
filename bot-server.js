@@ -65,22 +65,12 @@ function resolveMediaModel(name, ability) {
 }
 
 // ── 帮助卡片内容构建（从 models.config.js 自动派生）──────
+// 输出 registry key（= --model 主匹配键，复制粘贴可直接用）
+const TYPE_LABEL = { image: '图像生成', video: '视频生成', 'lip-sync': '口型驱动' };
 function buildModelsBody() {
-  const seen = new Set();
-  const mediaLines = [];
-  for (const cfg of Object.values(MODEL_REGISTRY)) {
-    const names = cfg.friendlyNames || [];
-    if (names.length === 0) continue;
-    const displayName = names[0];
-    if (seen.has(displayName)) continue;
-    seen.add(displayName);
-    const outputType = cfg.outputField.includes('图像') ? '图像生成' : '视频生成';
-    const hasVariants = Object.values(MODEL_REGISTRY).filter(
-      c => (c.friendlyNames || []).includes(displayName)
-    ).length > 1;
-    const note = hasVariants ? '（根据 ability 自动路由）' : '';
-    mediaLines.push(`\`${displayName}\`  ${outputType}${note}`);
-  }
+  const mediaLines = Object.entries(MODEL_REGISTRY).map(
+    ([key, cfg]) => `\`${key}\`  ${TYPE_LABEL[cfg.type] || cfg.type}`
+  );
   const textLines = DIFY_TEXT_MODELS.map(
     m => `\`${m.model}\`  ${m.vendor}${m.note ? '（' + m.note + '）' : ''}`
   );
@@ -557,15 +547,12 @@ async function handleMessage(data) {
       const textModelNames = DIFY_TEXT_MODELS.map(m => m.model);
       if (friendlyName && !textModelNames.includes(friendlyName)) {
         // 既不是已注册的媒体模型，也不是已注册的文本模型 → 拒绝兜底，明确报错
-        const allRegistered = [...MEDIA_MODELS, ...textModelNames];
         await sendMsg(chatId,
           `❌ 模型「${friendlyName}」未在 models.config.js 中注册\n\n` +
           `可能原因：\n` +
           `1. 该模型还没接入飞书测试体系（用 register-test-model skill 接入）\n` +
           `2. 飞书侧 pricing 关联名跟 models.config.js 的 registry key 不一致\n` +
-          `3. 该模型在运营组工作流里还没加 IF 分支（找开发同学）\n\n` +
-          `已注册模型（${allRegistered.length}）：\n` +
-          allRegistered.map(m => `· ${m}`).join('\n')
+          `3. 该模型在运营组工作流里还没加 IF 分支（找开发同学）`
         );
         return;
       }
