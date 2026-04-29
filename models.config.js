@@ -150,10 +150,10 @@ const MODEL_REGISTRY = {
     outputField: '输出视频附件',
     mimeType:    'video/mp4',
     ext:         'mp4',
-    abilities:   ['视频生成·图像'],
+    abilities:   ['视频生成·图像(首帧)'],
     timeout:     600000,
     friendlyNames: ['happyhorse-1.0-i2v-720p'],
-    extraInputs: { resolution: '720P', duration: 5 },  // 抄运营后台真实成功 run 的 inputs
+    extraInputs: { quality_mode: '720P', duration: 5 },  // 抄运营后台真实成功 run 的 inputs
   },
   'happyhorse-1.0-i2v-1080p': {
     type:        'video',
@@ -161,10 +161,10 @@ const MODEL_REGISTRY = {
     outputField: '输出视频附件',
     mimeType:    'video/mp4',
     ext:         'mp4',
-    abilities:   ['视频生成·图像'],
+    abilities:   ['视频生成·图像(首帧)'],
     timeout:     600000,
     friendlyNames: ['happyhorse-1.0-i2v-1080p'],
-    extraInputs: { resolution: '1080P', duration: 5 },
+    extraInputs: { quality_mode: '1080P', duration: 5 },
   },
   'happyhorse-1.0-t2v-720p': {
     type:        'video',
@@ -175,7 +175,7 @@ const MODEL_REGISTRY = {
     abilities:   ['视频生成·文本+图像', '视频生成·文本'],
     timeout:     600000,
     friendlyNames: ['happyhorse-1.0-t2v-720p'],
-    extraInputs: { resolution: '720P', duration: 5, aspect_ratio: '16:9' },  // T2V 必传 ratio
+    extraInputs: { quality_mode: '720P', duration: 5, aspect_ratio: '16:9' },  // T2V 必传 ratio
   },
   'happyhorse-1.0-r2v-720p': {
     type:        'video',
@@ -186,7 +186,7 @@ const MODEL_REGISTRY = {
     abilities:   ['视频生成·文本+图像', '视频生成·文本', '视频生成·文本(可选+图像)', '视频生成·图像'],
     timeout:     600000,
     friendlyNames: ['happyhorse-1.0-r2v-720p'],
-    extraInputs: { resolution: '720P', duration: 5, aspect_ratio: '16:9' },
+    extraInputs: { quality_mode: '720P', duration: 5, aspect_ratio: '16:9' },
   },
   'happyhorse-1.0-r2v-1080p': {
     type:        'video',
@@ -197,7 +197,7 @@ const MODEL_REGISTRY = {
     abilities:   ['视频生成·文本+图像', '视频生成·文本', '视频生成·文本(可选+图像)', '视频生成·图像'],
     timeout:     600000,
     friendlyNames: ['happyhorse-1.0-r2v-1080p'],
-    extraInputs: { resolution: '1080P', duration: 5, aspect_ratio: '16:9' },
+    extraInputs: { quality_mode: '1080P', duration: 5, aspect_ratio: '16:9' },
   },
   'happyhorse-1.0-video-edit-720p': {
     type:        'video',
@@ -208,7 +208,7 @@ const MODEL_REGISTRY = {
     abilities:   ['视频生成·运镜', '视频生成·混剪', '视频生成·视频续写', '视频生成·指令跟随', '视频生成·图像(首帧)', '视频生成·首尾帧'],
     timeout:     600000,
     friendlyNames: ['happyhorse-1.0-video-edit-720p'],
-    extraInputs: { resolution: '720P' },  // EDIT 不需要 duration
+    extraInputs: { quality_mode: '720P' },  // EDIT 不需要 duration
   },
   'happyhorse-1.0-video-edit-1080p': {
     type:        'video',
@@ -219,7 +219,7 @@ const MODEL_REGISTRY = {
     abilities:   ['视频生成·运镜', '视频生成·混剪', '视频生成·视频续写', '视频生成·指令跟随', '视频生成·图像(首帧)', '视频生成·首尾帧'],
     timeout:     600000,
     friendlyNames: ['happyhorse-1.0-video-edit-1080p'],
-    extraInputs: { resolution: '1080P' },
+    extraInputs: { quality_mode: '1080P' },
   },
 };
 
