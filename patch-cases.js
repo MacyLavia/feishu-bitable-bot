@@ -148,7 +148,7 @@ function callAI(userPrompt, systemPrompt) {
   return callSiliconFlow(userPrompt, systemPrompt);
 }
 
-async function aiFillFields(ability, existingPrompt, missingFields) {
+async function aiFillFields(ability, existingFields, missingFields) {
   const systemPrompt = '你是 AI 模型测试用例设计专家，熟悉图像/视频/文本生成模型的能力评测。'
                      + '根据提供的用例信息，补全缺失字段。只输出 JSON，不要解释，不要 markdown 代码块。';
 
@@ -156,12 +156,17 @@ async function aiFillFields(ability, existingPrompt, missingFields) {
     .map(f => `  "${f}": <${AI_FIELD_DESCS[f] || '相应内容'}>`)
     .join(',\n');
 
-  const userPrompt = `
-用例信息：
-  能力类型：${ability}
-  ${existingPrompt ? `已有 Prompt/指令：${existingPrompt}` : '（Prompt 也需要生成）'}
+  // 将用户已填字段格式化为上下文块
+  const filledLines = Object.entries(existingFields)
+    .map(([k, v]) => `  ${k}：${v}`)
+    .join('\n');
 
-请只输出以下缺失字段的 JSON（不要输出已有字段）：
+  const userPrompt = `
+用户已填字段（这些是约束条件，不要输出它们，生成内容必须与之保持一致）：
+  能力类型：${ability}
+${filledLines || '  （暂无其他已填字段）'}
+
+请只输出以下缺失字段的 JSON，内容须具体、与上方已填信息高度相关（不要泛泛而谈）：
 {
 ${fieldList}
 }
@@ -269,7 +274,13 @@ async function main() {
 
     if (!needNewId && missingFields.length === 0) continue;  // 全都有，跳过
 
-    toProcess.push({ recordId: c.record_id, ability, prompt, needNewId, missingFields, currentId: id });
+    // 收集用户已填的 AI 字段（AI_FIELD_DESCS 中值非空的字段）
+    const existingFields = {};
+    for (const field of Object.keys(AI_FIELD_DESCS)) {
+      const v = getStr(f[field]);
+      if (v) existingFields[field] = v;
+    }
+    toProcess.push({ recordId: c.record_id, ability, existingFields, needNewId, missingFields, currentId: id });
   }
 
   // 报告无能力类型的行
@@ -295,10 +306,13 @@ async function main() {
     // ── 定位行：显示飞书中对应哪条记录 ──────────────────
     const idLabel = item.currentId ? `用例编号 ${item.currentId}` : '用例编号 (空)';
     console.log(`\n${idx} ${idLabel}  [${item.ability}]`);
-    const promptPreview = item.prompt
-      ? item.prompt.slice(0, 60) + (item.prompt.length > 60 ? '…' : '')
+    const existingPromptVal = item.existingFields['Prompt / 指令'] || '';
+    const promptPreview = existingPromptVal
+      ? existingPromptVal.slice(0, 60) + (existingPromptVal.length > 60 ? '…' : '')
       : '（无 Prompt）';
+    const filledKeys = Object.keys(item.existingFields);
     console.log(`  Prompt: ${promptPreview}`);
+    console.log(`  已填字段（${filledKeys.length} 个）：${filledKeys.join(' / ') || '无'}`);
     console.log('  待写入字段：');
 
     const toFill = {};
@@ -320,7 +334,7 @@ async function main() {
     if (item.missingFields.length > 0) {
       process.stdout.write(`    (AI 生成中…)`);
       try {
-        const filled = await aiFillFields(item.ability, item.prompt, item.missingFields);
+        const filled = await aiFillFields(item.ability, item.existingFields, item.missingFields);
         // 清除"生成中"占位符，换行重新输出
         process.stdout.write('\r' + ' '.repeat(20) + '\r');
         for (const field of item.missingFields) {
