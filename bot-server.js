@@ -10,6 +10,9 @@
  *   @机器人 跑测试 --model glm-4.5              （文本模型，via Dify）
  *   @机器人 跑测试 --model glm-4.5 --siliconflow （文本模型，via SiliconFlow）
  *   @机器人 同步接入状态   （按 dify-extension origin/main + origin/develop 源码三态刷新接入状态：已接入 / 接入中 / 已下线）
+ *   @机器人 同步网关       （把 pricing.db → catwiki，新 URL 自动贴回群里给海涛哥）
+ *   @机器人 同步网关 --schema       （JSON + HTML 一起传）
+ *   @机器人 同步网关 --schema-only  （只重传 HTML，JSON UUID 不动）
  *   @机器人 帮助
  */
 
@@ -20,6 +23,7 @@
 
 const lark = require('@larksuiteoapi/node-sdk');
 const { spawn } = require('child_process');
+const path = require('path');
 const https = require('https');
 const {
   FEISHU_APP_ID: APP_ID,
@@ -35,6 +39,10 @@ const SCORE_SCRIPT = 'ai-scoring.js';
 const PATCH_SCRIPT = 'patch-cases.js';
 const SYNC_STATUS_SCRIPT = 'sync-status.js';
 const SYNC_INTEGRATION_SCRIPT = 'sync-integration.js';
+
+// 跨项目：ai-model-pricing 的 sync-to-gateway 脚本（跟 feishu-bitable-bot 同在 ~/ai-model-platform/ 下）
+const PRICING_DIR = path.join(__dirname, '../ai-model-pricing');
+const SYNC_GATEWAY_SCRIPT = 'scripts/sync-to-gateway.js';
 
 const { MEDIA_MODELS, DIFY_TEXT_MODELS, ABILITY_PREFIXES, MODEL_REGISTRY } = require('./models.config');
 
@@ -178,6 +186,17 @@ function parseCommand(text) {
   if (cleaned === '同步状态' || cleaned === 'sync-status' || cleaned === 'sync_status') return { cmd: 'sync_status' };
   if (cleaned === '同步接入状态' || cleaned === 'sync-integration' || cleaned === 'sync_integration') return { cmd: 'sync_integration' };
 
+  // 同步网关：把 pricing.db 推到 catwiki，并把新 URL 贴回群里给海涛哥
+  // 支持 --schema（同时传 HTML 字段说明）、--schema-only（只重传 HTML）
+  if (cleaned.startsWith('同步网关') || cleaned.startsWith('sync-gateway') || cleaned.startsWith('sync_gateway')) {
+    const parts = cleaned.split(/\s+/);
+    return {
+      cmd: 'sync_gateway',
+      withSchema: parts.includes('--schema'),
+      schemaOnly: parts.includes('--schema-only'),
+    };
+  }
+
   // 跑测试：--model 可选（缺省时走默认文本模型 glm-4.5）
   if (cleaned.startsWith('跑测试') || cleaned.startsWith('run')) {
     const parts   = cleaned.split(/\s+/);
@@ -217,10 +236,11 @@ function parseCommand(text) {
 }
 
 // ── 执行测试脚本（子进程），实时收集输出 ──────────────────
-function runTest(scriptArgs) {
+function runTest(scriptArgs, opts = {}) {
+  const cwd = opts.cwd || __dirname;
   return new Promise((resolve) => {
     const lines = [];
-    const proc  = spawn('node', scriptArgs, { cwd: __dirname });
+    const proc  = spawn('node', scriptArgs, { cwd });
     currentProc = proc;
     currentTask = { cmd: scriptArgs.join(' '), startedAt: Date.now() };
 
@@ -476,6 +496,11 @@ async function handleMessage(data) {
       '**🔄 同步状态**',
       '`同步状态`  从飞书规划文档同步「使用/接入/测试状态」到价格管理平台',
       '`同步接入状态`  按 dify-extension main/develop 源码三态刷新飞书「模型清单」接入状态：main 有 → 已接入、只 develop 有 → 接入中、两边都没 → 已下线',
+      '',
+      '**🚀 同步网关**  把 pricing 价格表推到 atmob wiki，给 AI 网关消费',
+      '`同步网关`  默认只传 JSON 路由表（pricing 数据更新时用）',
+      '`同步网关 --schema`  JSON 路由表 + HTML 字段说明 一起传',
+      '`同步网关 --schema-only`  只重传 HTML 字段说明（schema 微调时用，不动 JSON）',
       '',
       '**🛑 停止**',
       '`停止`  强制停止当前正在运行的任务（跑测试 / 评分 / 补全 / 同步等）',
@@ -772,6 +797,68 @@ async function handleMessage(data) {
       bodyText,
       '💰 查看价格表',
       PRICING_API
+    );
+    return;
+  }
+
+  // 同步网关（pricing.db → catwiki，并把新 URL 贴到群里给海涛哥）
+  if (parsed.cmd === 'sync_gateway') {
+    const scriptArgs = [SYNC_GATEWAY_SCRIPT];
+    if (parsed.schemaOnly)      scriptArgs.push('--schema-only');
+    else if (parsed.withSchema) scriptArgs.push('--schema');
+
+    const modeLabel = parsed.schemaOnly  ? '只重传 HTML 字段说明'
+                    : parsed.withSchema  ? 'JSON 路由表 + HTML 字段说明'
+                    :                      '只传 JSON 路由表';
+    await sendMsg(chatId, `⏳ 开始同步网关（${modeLabel}），完成后把新 URL 贴回这里。`);
+
+    console.log(`\n[BOT] 执行: node ${scriptArgs.join(' ')} (cwd=${PRICING_DIR})`);
+    const { code, lines } = await runTest(scriptArgs, { cwd: PRICING_DIR });
+
+    // 抽 URL（脚本输出格式：`   文件 URL: https://...`）
+    const urlLines = lines
+      .filter(l => l.includes('文件 URL:'))
+      .map(l => l.replace(/^\s*文件 URL:\s*/, '').trim());
+    const jsonUrl   = !parsed.schemaOnly ? urlLines[0]                             : null;
+    const schemaUrl = parsed.schemaOnly  ? urlLines[0]
+                    : parsed.withSchema  ? urlLines[1]
+                    :                      null;
+
+    // 摘要信息行
+    const infoLines = lines.filter(l =>
+      l.includes('模型数:') ||
+      l.includes('JSON 大小:') ||
+      l.includes('上传成功') ||
+      l.includes('❌') ||
+      l.includes('⚠️')
+    ).slice(0, 8);
+
+    const segments = [];
+    if (infoLines.length) segments.push(infoLines.join('\n'));
+    if (jsonUrl) {
+      segments.push(`📦 **JSON 路由表（网关消费）**\n${jsonUrl}`);
+    }
+    if (schemaUrl) {
+      segments.push(`📖 **HTML 字段说明（开发查阅）**\n${schemaUrl}`);
+    }
+    if (code === 0 && (jsonUrl || schemaUrl)) {
+      segments.push('_提示：把新 URL 同步给海涛哥替换网关配置_');
+    }
+    const bodyText = segments.join('\n\n') || (code === 0 ? '网关同步完成' : '网关同步异常，请查看控制台日志');
+
+    // 按钮：优先指向 JSON URL（最常用），其次 HTML，都没有时 fallback 到价格表
+    const btnText = jsonUrl   ? '🔗 打开 JSON 路由表'
+                  : schemaUrl ? '🔗 打开 HTML 字段说明'
+                  :             '💰 查看价格表';
+    const btnUrl  = jsonUrl || schemaUrl || PRICING_API;
+
+    await sendCard(
+      chatId,
+      code === 0 ? '✅ 网关同步完成' : '⚠️ 网关同步结束（有异常）',
+      code === 0 ? 'green' : 'orange',
+      bodyText,
+      btnText,
+      btnUrl
     );
     return;
   }
