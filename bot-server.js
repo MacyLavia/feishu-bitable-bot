@@ -824,13 +824,20 @@ async function handleMessage(data) {
                     : parsed.withSchema  ? urlLines[1]
                     :                      null;
 
-    // 摘要信息行
+    // 校验状态行（[CHECK] L1/L2/L3a，每层独立一行）
+    const checkLines = lines
+      .filter(l => l.includes('[CHECK]'))
+      .map(l => l.replace(/^.*\[CHECK\]\s*/, '').trim());
+
+    // 其余摘要信息行（去掉 [CHECK]，避免重复）
     const infoLines = lines.filter(l =>
-      l.includes('模型数:') ||
-      l.includes('JSON 大小:') ||
-      l.includes('上传成功') ||
-      l.includes('❌') ||
-      l.includes('⚠️')
+      !l.includes('[CHECK]') && (
+        l.includes('模型数:') ||
+        l.includes('JSON 大小:') ||
+        l.includes('上传成功') ||
+        l.includes('❌') ||
+        l.includes('⚠️')
+      )
     ).slice(0, 8);
 
     const segments = [];
@@ -841,6 +848,7 @@ async function handleMessage(data) {
     if (schemaUrl) {
       segments.push(`📖 **HTML 字段说明（开发查阅）**\n${schemaUrl}`);
     }
+    if (checkLines.length) segments.push(`**📋 数据校验**\n${checkLines.join('\n')}`);
     if (code === 0 && (jsonUrl || schemaUrl)) {
       segments.push('_提示：把新 URL 同步给海涛哥替换网关配置_');
     }
